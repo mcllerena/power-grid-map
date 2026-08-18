@@ -688,6 +688,20 @@ function applyWorkbookProjectMetadata(properties, projectRows) {
   return properties;
 }
 
+function applyConfiguredProjectMetadata(properties, projectMetadata) {
+  if (!projectMetadata || typeof projectMetadata !== "object") {
+    return properties;
+  }
+
+  const sub1 = String(properties?.SUB_1 || "").trim();
+  const sub2 = String(properties?.SUB_2 || "").trim();
+  const existingRecords = Array.isArray(properties.project_records) ? properties.project_records : [];
+  const project = { ...(existingRecords[0] || {}), ...projectMetadata, SUB_1: sub1, SUB_2: sub2 };
+  properties.project_records = [project, ...existingRecords.slice(1)];
+  properties.reconductoring_voltage = project["Voltage (kV)"] || properties.reconductoring_voltage;
+  return properties;
+}
+
 function getIsoStates(isoConfig, hierarchyRows) {
   const states = new Set(isoConfig.states || []);
   if (isoConfig.hierarchyStateFilter?.column && isoConfig.hierarchyStateFilter?.value) {
@@ -798,7 +812,11 @@ async function generate() {
   const stateMap = buildHierarchyRegionFeatures(pcaCollection, hierarchyRows, "st");
   const transgrpMap = buildHierarchyRegionFeatures(pcaCollection, hierarchyRows, "transgrp");
 
-  for (const isoConfig of ISO_RECONDUCTORING_CONFIG.filter((entry) => entry.enabled)) {
+  const requestedIso = process.env.RECONDUCTORING_ISO;
+  const enabledConfigs = ISO_RECONDUCTORING_CONFIG.filter(
+    (entry) => entry.enabled && (!requestedIso || entry.key === requestedIso)
+  );
+  for (const isoConfig of enabledConfigs) {
     const { regionColumn, groups: isoTransmissionGroups } = getIsoTransmissionGroups(isoConfig, hierarchyRows);
     let regionFeatures = isoTransmissionGroups.map((group) => transgrpMap.get(group)).filter(Boolean).map(cloneFeature);
     let regionSelectionMode = "transmission-group";
@@ -871,8 +889,16 @@ async function generate() {
         } else {
           clone.properties.substation_pair = `${feature.properties.SUB_1 || "-"} -> ${feature.properties.SUB_2 || "-"}`;
         }
-        clone.properties.reconductoring_voltage = getFeatureProperty(feature.properties, ["VOLTAGE", "Voltage", "voltage"]);
-        clone.properties = applyWorkbookProjectMetadata(clone.properties, projectRows);
+        clone.properties.reconductoring_voltage =
+          isoConfig.voltageOverrides?.[buildCanonicalPairLabel(clone.properties.SUB_1, clone.properties.SUB_2)] ||
+          getFeatureProperty(feature.properties, ["VOLTAGE", "Voltage", "voltage"]);
+        if (projectRows.length) {
+          clone.properties = applyWorkbookProjectMetadata(clone.properties, projectRows);
+        }
+        clone.properties = applyConfiguredProjectMetadata(
+          clone.properties,
+          isoConfig.projectMetadata?.[buildCanonicalPairLabel(clone.properties.SUB_1, clone.properties.SUB_2)]
+        );
         return clone;
       });
     existingFeatures = dedupeWorkbookBackedPairFeatures(existingFeatures, projectsByPair);

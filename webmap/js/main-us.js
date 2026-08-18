@@ -222,12 +222,12 @@ const US_VOLTAGE_PALETTE = [
   "#0f766e",
   "#52525b",
 ];
-const US_ALLOWED_VOLTAGE_LEVELS = ["765", "500", "345", "230", "161", "138", "115", "69", "34.5"];
+const US_ALLOWED_VOLTAGE_LEVELS = ["765", "500", "345", "230", "220", "161", "138", "115", "69", "34.5"];
 const US_DEFAULT_VISIBLE_TRANSMISSION_LEVELS = new Set(["765", "500", "345", "230", "161", "138", "115", "69"]);
 const US_DEFAULT_VISIBLE_SUBSTATION_LEVELS = new Set();
-const US_TRANSMISSION_PRIMARY_LEVELS = new Set(["1000", "765", "500", "450", "400", "348", "169", "115", "69"]);
-const US_SUBSTATION_PRIMARY_LEVELS = new Set(["1000", "765", "500", "450", "400", "348", "169", "115", "69"]);
-const US_PRIMARY_LEVEL_SORT_ORDER = ["1000", "765", "500", "450", "400", "348", "345", "230", "169", "161", "138", "115", "69", "34.5"];
+const US_TRANSMISSION_PRIMARY_LEVELS = new Set(["1000", "765", "500", "450", "400", "348", "345", "230", "220", "169", "161", "138", "115", "69"]);
+const US_SUBSTATION_PRIMARY_LEVELS = new Set(["1000", "765", "500", "450", "400", "348", "345", "230", "220", "169", "161", "138", "115", "69"]);
+const US_PRIMARY_LEVEL_SORT_ORDER = ["1000", "765", "500", "450", "400", "348", "345", "230", "220", "169", "161", "138", "115", "69", "34.5"];
 const US_TYPE_PALETTE = [
   "#e67e22",
   "#1d7db8",

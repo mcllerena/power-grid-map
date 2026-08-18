@@ -93,6 +93,28 @@ const ISO_RECONDUCTORING_CONFIG = [
       ["CAYUGA", "WOLF CREEK"],
       ["TIPTON WEST", "KOKOMO HIGHLAND PARK"],
     ],
+    projectMetadata: {
+      "EDEN||HIGHLAND": {
+        "Project Name": "Eden - Highland 138 kV (X-147) reconductoring project",
+        Utility: "American Transmission Company",
+        "Project Type": "Regional grid upgrade",
+        "Voltage (kV)": "138",
+        "Distance (mi)": "4.5",
+        Status: "Planned",
+        Description:
+          "Rebuild and reconductor roughly 4.5 miles of the Eden - Highland 138 kV transmission line in Wisconsin to support generation interconnections and relieve thermal overloads under the MISO planning process.",
+      },
+      "CAYUGA||WOLF CREEK": {
+        "Project Name": "Cayuga - Wolf Creek 345 kV baseline transmission upgrade",
+        Utility: "Duke Energy Indiana",
+        "Project Type": "Baseline reliability upgrade",
+        "Voltage (kV)": "345",
+        Status: "Planned",
+        "Planned Year": "2029",
+        Description:
+          "Coordinated MISO baseline transmission upgrades rebuild and reconductor the 345 kV lines connecting Cayuga, Nucor, and Wolf Creek. The program includes a $96 million Cayuga-to-Nucor rebuild and a $49 million Nucor-to-Wolf Creek rebuild targeted for completion by June 2029.",
+      },
+    },
   },
   {
     key: "westconnect",
@@ -184,6 +206,26 @@ const ISO_RECONDUCTORING_CONFIG = [
       ["JOHNSON 2", "OTTER"],
       ["CARSON", "POE"],
     ],
+    voltageOverrides: {
+      "OAK RIDGE||WINDSOR": "115",
+      "JEFFERSON||LICK": "69",
+    },
+    projectMetadata: {
+      "JEFFERSON||LICK": {
+        "Project Name": "LICK - JEFFERSON 69 kV reconductoring project",
+        "Voltage (kV)": "69",
+      },
+      "CHESTERFIELD||TYLER": {
+        "Project Name": "Chesterfield - Tyler 230 kV transmission rebuild and reconductor project",
+        Utility: "Dominion Energy",
+        "Project Type": "Supplemental transmission planning reliability upgrade",
+        "Voltage (kV)": "230",
+        "Distance (mi)": "2.9",
+        Status: "Planned",
+        Description:
+          "Rebuild and reconductor 2.9 miles of overhead transmission line from the Chesterfield Substation to just south of the Tyler Substation in Chesterfield County, Virginia. The operating voltage will remain 230 kV while new structures and higher-capacity conductors replace aging infrastructure, increase ampacity, and support regional data center growth, local generation, and reliability needs through Dominion Energy's supplemental transmission planning process.",
+      },
+    },
   },
   {
     key: "spp",
@@ -999,7 +1041,17 @@ function featureIntersectsAnyRegion(feature, regionIndex) {
 
 function buildPopupProperties(feature) {
   const props = feature?.properties || {};
-  const projectRecords = Array.isArray(props.project_records) ? props.project_records : [];
+  const isoConfig = ISO_RECONDUCTORING_CONFIG.find((config) => config.label === props.iso_region);
+  const pairKey = [normalizeName(props.SUB_1), normalizeName(props.SUB_2)].sort().join("||");
+  const configuredProject = isoConfig?.projectMetadata?.[pairKey];
+  const configuredVoltage = isoConfig?.voltageOverrides?.[pairKey];
+  const sourceProjectRecords = Array.isArray(props.project_records) ? props.project_records : [];
+  const projectRecords = configuredProject
+    ? [
+        { ...(sourceProjectRecords[0] || {}), ...configuredProject, SUB_1: props.SUB_1, SUB_2: props.SUB_2 },
+        ...sourceProjectRecords.slice(1),
+      ]
+    : sourceProjectRecords;
   const primaryProject = projectRecords[0] || null;
   const projectNames = projectRecords
     .map((row) => String(row?.["Project Name"] || "").trim())
@@ -1017,7 +1069,7 @@ function buildPopupProperties(feature) {
     ["SUB_2", displaySub2],
     [
       "Voltage",
-      primaryProject?.["Voltage (kV)"] || primaryProject?.Voltage || props.reconductoring_voltage || props.VOLTAGE || "-",
+      configuredVoltage || configuredProject?.["Voltage (kV)"] || primaryProject?.["Voltage (kV)"] || primaryProject?.Voltage || props.reconductoring_voltage || props.VOLTAGE || "-",
     ],
   ];
 
@@ -1160,6 +1212,11 @@ function buildSubstationPairLabel(sub1, sub2) {
   return `${normalizeName(sub1)}||${normalizeName(sub2)}`;
 }
 
+function getReconductoringVoltageOverride(isoConfig, sub1, sub2) {
+  const pairKey = [normalizeName(sub1), normalizeName(sub2)].sort().join("||");
+  return isoConfig?.voltageOverrides?.[pairKey] || null;
+}
+
 function deriveSubstationPairsFromMatchers(features, matchers) {
   const uniquePairs = new Map();
 
@@ -1247,7 +1304,9 @@ async function buildIsoReconductoringDataset(options) {
       clone.properties.project_type = "existing-reconductoring";
       clone.properties.iso_region = isoConfig.label;
       clone.properties.substation_pair = `${feature.properties.SUB_1 || "-"} -> ${feature.properties.SUB_2 || "-"}`;
-      clone.properties.reconductoring_voltage = getFeatureProperty(feature.properties, ["VOLTAGE", "Voltage", "voltage"]);
+      clone.properties.reconductoring_voltage =
+        getReconductoringVoltageOverride(isoConfig, clone.properties.SUB_1, clone.properties.SUB_2) ||
+        getFeatureProperty(feature.properties, ["VOLTAGE", "Voltage", "voltage"]);
       return clone;
     });
 
