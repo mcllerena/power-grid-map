@@ -848,7 +848,7 @@ async function syncUsReconductoringLayer(isoKey, shouldShow) {
       <strong>${dataset.label}</strong><br />
       States: ${dataset.summary.states.join(", ")}<br />
       ReEDS candidate lines in region: ${dataset.summary.candidateLineCount}<br />
-      Existing reconductoring segments: ${dataset.summary.existingSegmentCount}<br />
+      Line Reconductoring segments: ${dataset.summary.existingSegmentCount}<br />
       New direct reconductoring links: ${dataset.summary.newSegmentCount}<br />
       Substation pairs tracked: ${dataset.summary.substationPairCount}
     `);

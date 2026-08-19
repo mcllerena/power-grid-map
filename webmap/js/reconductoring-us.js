@@ -1063,7 +1063,7 @@ function buildPopupProperties(feature) {
   const displayPair = projectSub1 && projectSub2 ? `${projectSub1} -> ${projectSub2}` : props.substation_pair || "-";
   const rows = [
     ["Region", props.iso_region || "-"],
-    ["Project", props.project_type === "new-reconductoring" ? "New reconductoring" : "Existing reconductoring"],
+    ["Project", props.project_type === "new-reconductoring" ? "New reconductoring" : "Line Reconductoring"],
     ["Substation pair", displayPair],
     ["SUB_1", displaySub1],
     ["SUB_2", displaySub2],
