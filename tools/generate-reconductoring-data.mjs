@@ -544,64 +544,6 @@ function lineLengthMiles(geometry) {
   return total;
 }
 
-function findDirectPairLineIds(source, sub1, sub2, projectRows) {
-  const target1 = normalizeName(sub1);
-  const target2 = normalizeName(sub2);
-  const directCandidates = [];
-
-  for (const feature of source?.features || []) {
-    const f1 = normalizeName(feature?.properties?.SUB_1);
-    const f2 = normalizeName(feature?.properties?.SUB_2);
-    const matchesPair = (f1 === target1 && f2 === target2) || (f1 === target2 && f2 === target1);
-    if (!matchesPair) {
-      continue;
-    }
-    directCandidates.push(feature);
-  }
-
-  if (!directCandidates.length) {
-    return new Set();
-  }
-
-  const utilityAliases = new Set(
-    (projectRows || []).flatMap((row) => getUtilityAliases(row?.Utility))
-  );
-  let narrowed = directCandidates;
-  if (utilityAliases.size) {
-    const utilityMatched = directCandidates.filter((feature) => {
-      const owner = normalizeTextToken(getFeatureOwnerLabel(feature));
-      if (!owner) {
-        return false;
-      }
-      for (const alias of utilityAliases) {
-        if (owner.includes(alias) || alias.includes(owner)) {
-          return true;
-        }
-      }
-      return false;
-    });
-    if (utilityMatched.length) {
-      narrowed = utilityMatched;
-    }
-  }
-
-  const targetDistance = (projectRows || [])
-    .map((row) => parseDistanceMiles(row?.["Distance (mi)"]))
-    .find((value) => Number.isFinite(value));
-
-  let selected = narrowed[0];
-  if (Number.isFinite(targetDistance) && narrowed.length > 1) {
-    selected = narrowed
-      .map((feature) => ({
-        feature,
-        delta: Math.abs(lineLengthMiles(feature.geometry) - targetDistance),
-      }))
-      .sort((a, b) => a.delta - b.delta)[0]?.feature || narrowed[0];
-  }
-
-  return new Set([selected.properties.__featureIndex]);
-}
-
 function chooseBestFeatureForWorkbookPair(features, projectRows) {
   if (!features.length) {
     return null;
@@ -842,6 +784,9 @@ async function generate() {
     const lineProjectsById = new Map();
     const lineIntendedPairById = new Map(); // featureIndex -> [sub1, sub2]
     const pairRowsMatchCount = new Set();
+    const pathMatchedPairKeys = new Set();
+    const fallbackPairKeys = new Set();
+    const unmatchedPairKeys = new Set();
     for (const [sub1, sub2] of targetPairs) {
       const pairKey = buildCanonicalPairLabel(sub1, sub2);
       const projectRows = projectsByPair.get(pairKey) || [];
@@ -849,9 +794,16 @@ async function generate() {
         pairRowsMatchCount.add(pairKey);
       }
       const beforeNewLineCount = newLineFeatures.length;
-      let ids = findDirectPairLineIds(regionalIndex, sub1, sub2, projectRows);
-      if (!ids.size) {
-        ids = processSubstationPair(regionalIndex, sub1, sub2, newLineFeatures, isoConfig.label);
+      // Resolve workbook pairs through the transmission graph first. This
+      // follows the full shortest path, including intermediary substations,
+      // instead of treating SUB_1/SUB_2 as a required direct line match.
+      const ids = processSubstationPair(regionalIndex, sub1, sub2, newLineFeatures, isoConfig.label);
+      if (ids.size) {
+        pathMatchedPairKeys.add(pairKey);
+      } else if (newLineFeatures.length > beforeNewLineCount) {
+        fallbackPairKeys.add(pairKey);
+      } else {
+        unmatchedPairKeys.add(pairKey);
       }
       for (const id of ids) {
         existingLineIds.add(id);
@@ -924,6 +876,9 @@ async function generate() {
         workbookProjectRowCount: workbookRows.length,
         workbookMatchedPairCount: pairRowsMatchCount.size,
         workbookUnmatchedRowCount: projectsUnmatchedToPairs.length,
+        pathMatchedPairCount: pathMatchedPairKeys.size,
+        fallbackPairCount: fallbackPairKeys.size,
+        unmatchedPairCount: unmatchedPairKeys.size,
         candidateLineCount: regionalIndex.features.length,
         existingSegmentCount: existingFeatures.length,
         newSegmentCount: newLineFeatures.length,

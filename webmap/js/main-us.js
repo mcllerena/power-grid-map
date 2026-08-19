@@ -2425,7 +2425,7 @@ function buildUsReconductoringControl() {
 
     const marker = document.createElement("span");
     marker.className = "reconductoring-iso-swatch";
-    marker.style.backgroundColor = US_RECONDUCTORING_LINE_COLOR;
+    marker.style.backgroundColor = iso.regionStyle?.color || "#9a6700";
     marker.setAttribute("aria-hidden", "true");
 
     const text = document.createElement("span");
