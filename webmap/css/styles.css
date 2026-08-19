@@ -26,6 +26,7 @@
   --voltage-filter-bg: rgba(14, 52, 52, 0.06);
   --voltage-filter-title: #2f5f5c;
   --voltage-filter-text: #183f3d;
+  --legend-count: #234f4c;
   --accent: #f4a259;
   --line-op: #2b7a78;
   --line-pl: #db6f2b;
@@ -34,8 +35,8 @@
   --plant-ex: #27ae60;
   --plant-pl: #f39c12;
   --plant-ot: #e74c3c;
-  --card-hover-bg: rgba(0, 0, 0, 0.72);
-  --card-hover-text: #ffffff;
+  --card-hover-bg: rgba(224, 240, 237, 0.98);
+  --card-hover-text: #143737;
 }
 
 * {
@@ -75,6 +76,9 @@ body[data-theme="dark"] {
   --voltage-filter-bg: rgba(175, 217, 221, 0.12);
   --voltage-filter-title: #c5eaec;
   --voltage-filter-text: #e4f8f9;
+  --legend-count: #c5e6e7;
+  --card-hover-bg: rgba(0, 0, 0, 0.72);
+  --card-hover-text: #ffffff;
 }
 
 #theme-toggle {
@@ -435,9 +439,9 @@ body.us-map-page #map-ui-left.is-open {
 .map-ui-left-toggle {
   display: grid;
   place-items: center;
-  border: 1px solid var(--ui-border);
-  color: var(--text);
-  background: var(--ui-bg);
+  border: 1px solid var(--toggle-border);
+  color: var(--toggle-text);
+  background: var(--toggle-bg);
   cursor: pointer;
 }
 
@@ -467,6 +471,37 @@ body.us-map-page #map-ui-left.is-open {
 .map-ui-left-toggle.is-open {
   left: min(clamp(250px, 28vw, 360px), calc(100vw - 24px));
   transform: rotate(180deg);
+}
+
+.map-ui-drawer-toggle-label {
+  position: absolute;
+  z-index: 900;
+  padding: 4px 7px;
+  border: 1px solid var(--toggle-border);
+  border-radius: 6px;
+  background: var(--toggle-bg);
+  color: var(--toggle-text);
+  box-shadow: var(--ui-shadow);
+  font: inherit;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: opacity 160ms ease, visibility 160ms ease;
+}
+
+.map-ui-left-toggle-label {
+  top: 164px;
+  left: 40px;
+}
+
+.map-ui-left-toggle.is-open + .map-ui-left-toggle-label,
+.map-ui-right-toggle.is-open + .map-ui-right-toggle-label {
+  opacity: 0;
+  visibility: hidden;
 }
 
 #map-ui-left #section-substations {
@@ -531,9 +566,9 @@ body.us-map-page #map-ui-left.is-open {
 .map-ui-right-toggle {
   display: grid;
   place-items: center;
-  border: 1px solid var(--ui-border);
-  color: var(--text);
-  background: var(--ui-bg);
+  border: 1px solid var(--toggle-border);
+  color: var(--toggle-text);
+  background: var(--toggle-bg);
   cursor: pointer;
 }
 
@@ -563,6 +598,11 @@ body.us-map-page #map-ui-left.is-open {
 .map-ui-right-toggle.is-open {
   right: min(360px, calc(100vw - 24px));
   transform: rotate(180deg);
+}
+
+.map-ui-right-toggle-label {
+  top: 28px;
+  right: 40px;
 }
 
 .map-ui-right-stack {
@@ -699,6 +739,10 @@ body.us-map-page #map-ui-left.is-open {
 .section-card:hover .voltage-filter-title,
 .section-card:hover .voltage-filter-row,
 .section-card:hover .power-plant-subgroup-title {
+  color: var(--card-hover-text);
+}
+
+.section-card:hover .legend-count {
   color: var(--card-hover-text);
 }
 
@@ -931,21 +975,24 @@ body.us-map-page #map-ui-left.is-open {
 }
 
 .section-toggle-btn {
-  border: 1px solid var(--ui-border);
+  border: 1px solid var(--toggle-border);
   border-radius: 8px;
-  background: transparent;
-  color: var(--ui-text);
+  background: var(--toggle-bg);
+  color: var(--toggle-text);
   font-family: inherit;
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  padding: 2px 7px;
+  padding: 5px 9px;
+  box-shadow: 0 2px 6px rgba(13, 41, 41, 0.12);
   cursor: pointer;
 }
 
 .section-toggle-btn:hover {
-  filter: brightness(1.08);
+  background: var(--title-card-bg);
+  color: var(--title-color);
+  border-color: var(--title-card-border);
 }
 
 .section-card.is-collapsed .section-card-body {
@@ -1025,10 +1072,10 @@ body.us-map-page #map-ui-left.is-open {
 
 .legend-count {
   margin-left: 4px;
-  color: var(--ui-muted);
-  font-size: 0.78em;
-  font-style: italic;
-  font-weight: 400;
+  color: var(--legend-count);
+  font-size: 0.82em;
+  font-style: normal;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -1414,6 +1461,10 @@ body.us-map-page #map-ui-left.is-open {
 
   .map-ui-left-toggle {
     top: 205px;
+  }
+
+  .map-ui-left-toggle-label {
+    top: 219px;
   }
 
   #map-ui-left #section-substations,

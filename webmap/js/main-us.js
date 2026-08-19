@@ -86,7 +86,13 @@ async function loadUsSubstationLayer() {
     let sortVoltage = -1;
     let sortPrimaryRank = Number.POSITIVE_INFINITY;
 
-    if (normalizedVoltage && normalizedVoltage !== "-99999") {
+    const isNotDetermined = normalizedVoltage === "-99999" || normalizedVoltage === "-999999";
+
+    if (isNotDetermined) {
+      group = "primary";
+      displayLabel = "Not Determined";
+      sortPrimaryRank = 99;
+    } else if (normalizedVoltage) {
       if (isTap) {
         const tapBucket = getTapVoltageBucket(Number(normalizedVoltage));
         if (tapBucket) {
@@ -98,16 +104,22 @@ async function loadUsSubstationLayer() {
       }
 
       if (!isTap || group !== "primary") {
-        group = US_SUBSTATION_PRIMARY_LEVELS.has(normalizedVoltage) ? "primary" : "other-range";
-        displayLabel = formatSubstationVoltageDisplayLabel(normalizedVoltage);
-        sortVoltage = Number(normalizedVoltage);
-        sortPrimaryRank = getPrimaryVoltageSortRank(normalizedVoltage);
+        const substationBucket = getSubstationVoltageBucket(Number(normalizedVoltage));
+        if (substationBucket) {
+          group = "primary";
+          displayLabel = substationBucket.label;
+          sortVoltage = substationBucket.sortVoltage;
+          sortPrimaryRank = substationBucket.sortRank;
+        } else {
+          group = "other-range";
+          displayLabel = formatSubstationVoltageDisplayLabel(normalizedVoltage);
+          sortVoltage = Number(normalizedVoltage);
+          sortPrimaryRank = getPrimaryVoltageSortRank(normalizedVoltage);
+        }
       }
-    } else if (normalizedVoltage === "-99999") {
-      displayLabel = "-99999";
     }
 
-    const targetMap = isTapRecord(record) ? tapRecordsByVoltage : substationRecordsByVoltage;
+    const targetMap = isTap ? tapRecordsByVoltage : substationRecordsByVoltage;
     const key = `${displayLabel}||${group}`;
     if (!targetMap.has(key)) {
       targetMap.set(key, {
@@ -266,6 +278,39 @@ const US_TAP_VOLTAGE_BUCKETS = [
   { label: "> 35 - 69 kV AC", min: 35, max: 69, sortRank: 6, sortVoltage: 69 },
   { label: "> 0 - 35 kV AC", min: 0, max: 35, sortRank: 7, sortVoltage: 35 },
 ];
+const US_SUBSTATION_VOLTAGE_BUCKETS = [
+  { label: "1000 kV DC", exact: 1000, sortRank: 0, sortVoltage: 1000 },
+  { label: "765 kV AC", exact: 765, sortRank: 1, sortVoltage: 765 },
+  { label: "500 kV AC", exact: 500, sortRank: 2, sortVoltage: 500 },
+  { label: "360 - 500 kV AC", min: 360, max: 500, sortRank: 3, sortVoltage: 499 },
+  { label: "348 kV DC", exact: 348, sortRank: 4, sortVoltage: 348 },
+  { label: "345 kV AC", exact: 345, sortRank: 5, sortVoltage: 345 },
+  { label: "231 - 300 kV AC", min: 231, max: 300, sortRank: 6, sortVoltage: 300 },
+  { label: "230 kV AC", exact: 230, sortRank: 7, sortVoltage: 230 },
+  { label: "200 - 230 kV AC", min: 200, max: 230, sortRank: 8, sortVoltage: 229 },
+  { label: "138 - 200 kV AC", min: 138, max: 200, sortRank: 9, sortVoltage: 200 },
+  { label: "70 - 138 kV AC", min: 70, max: 138, sortRank: 10, sortVoltage: 137 },
+  { label: "69 kV AC", exact: 69, sortRank: 11, sortVoltage: 69 },
+  { label: "35 - 69 kV AC", min: 35, max: 69, sortRank: 12, sortVoltage: 68 },
+  { label: "0 - 35 kV AC", min: 0, max: 35, sortRank: 13, sortVoltage: 35 },
+];
+const US_TRANSMISSION_VOLTAGE_BUCKETS = [
+  { label: "1000 kV DC", exact: 1000, currentType: "DC", sortRank: 0, sortVoltage: 1000 },
+  { label: "765 kV AC", exact: 765, currentType: "AC", sortRank: 1, sortVoltage: 765 },
+  { label: "500 kV AC", exact: 500, currentType: "AC", sortRank: 2, sortVoltage: 500 },
+  { label: "450 kV DC", exact: 450, currentType: "DC", sortRank: 3, sortVoltage: 450 },
+  { label: "400 kV DC", exact: 400, currentType: "DC", sortRank: 4, sortVoltage: 400 },
+  { label: "348 kV DC", exact: 348, currentType: "DC", sortRank: 5, sortVoltage: 348 },
+  { label: "345 kV AC", exact: 345, currentType: "AC", sortRank: 6, sortVoltage: 345 },
+  { label: "231 - 300 kV AC", min: 231, max: 300, currentType: "AC", sortRank: 7, sortVoltage: 300 },
+  { label: "230 kV AC", exact: 230, currentType: "AC", sortRank: 8, sortVoltage: 230 },
+  { label: "200 - 230 kV AC", min: 200, max: 230, currentType: "AC", sortRank: 9, sortVoltage: 229 },
+  { label: "138 - 200 kV AC", min: 138, max: 200, currentType: "AC", sortRank: 10, sortVoltage: 200 },
+  { label: "70 - 138 kV AC", min: 70, max: 138, currentType: "AC", sortRank: 11, sortVoltage: 137 },
+  { label: "69 kV AC", exact: 69, currentType: "AC", sortRank: 12, sortVoltage: 69 },
+  { label: "35 - 69 kV AC", min: 35, max: 69, currentType: "AC", sortRank: 13, sortVoltage: 68 },
+  { label: "0 - 35 kV AC", min: 0, max: 35, currentType: "AC", sortRank: 14, sortVoltage: 35 },
+];
 const US_TYPE_PALETTE = [
   "#e67e22",
   "#1d7db8",
@@ -362,14 +407,10 @@ let usTransmissionLayer = null;
 let usTransmissionVoltageLayers = new Map();
 let usTransmissionMasterCheckbox = null;
 let usTransmissionVoltageContainer = null;
-let usTransmissionOtherVoltageContainer = null;
-let usTransmissionOtherVoltageCard = null;
 let usSubstationLayer = null;
 let usSubstationVoltageLayers = new Map();
 let usSubstationMasterCheckbox = null;
 let usSubstationVoltageContainer = null;
-let usSubstationOtherVoltageContainer = null;
-let usSubstationOtherVoltageCard = null;
 let usTapLayer = null;
 let usTapVoltageLayers = new Map();
 let usTapVoltageContainer = null;
@@ -395,10 +436,12 @@ let usStatusTrackingActive = false;
 const mapShellEl = document.getElementById("map-shell");
 const mapUiLeftEl = document.getElementById("map-ui-left");
 const mapUiLeftToggleEl = document.getElementById("map-ui-left-toggle");
+const mapUiLeftLabelToggleEl = document.getElementById("map-ui-left-label-toggle");
 const mapUiLeftCloseEl = document.getElementById("map-ui-left-close");
 const mapUiRightEl = document.getElementById("map-ui-right");
 const mapUiRightStackEl = document.getElementById("map-ui-right-stack");
 const mapUiRightToggleEl = document.getElementById("map-ui-right-toggle");
+const mapUiRightLabelToggleEl = document.getElementById("map-ui-right-label-toggle");
 const mapUiRightCloseEl = document.getElementById("map-ui-right-close");
 const statusListEl = document.getElementById("status-list");
 const mapTitleCardEl = document.getElementById("map-title-card");
@@ -413,6 +456,8 @@ function setUsLegendDrawerOpen(isOpen) {
   mapUiRightToggleEl.setAttribute("aria-expanded", String(isOpen));
   mapUiRightToggleEl.classList.toggle("is-open", isOpen);
   mapUiRightToggleEl.title = isOpen ? "Hide map legends" : "Show map legends";
+  mapUiRightLabelToggleEl?.setAttribute("aria-expanded", String(isOpen));
+  mapUiRightLabelToggleEl?.setAttribute("title", isOpen ? "Hide map legends" : "Show map legends");
   const label = mapUiRightToggleEl.querySelector(".sr-only");
   if (label) {
     label.textContent = isOpen ? "Hide map legends" : "Show map legends";
@@ -429,6 +474,8 @@ function setUsLayerDrawerOpen(isOpen) {
   mapUiLeftToggleEl.setAttribute("aria-expanded", String(isOpen));
   mapUiLeftToggleEl.classList.toggle("is-open", isOpen);
   mapUiLeftToggleEl.title = isOpen ? "Hide grid layers" : "Show grid layers";
+  mapUiLeftLabelToggleEl?.setAttribute("aria-expanded", String(isOpen));
+  mapUiLeftLabelToggleEl?.setAttribute("title", isOpen ? "Hide grid layers" : "Show grid layers");
   const label = mapUiLeftToggleEl.querySelector(".sr-only");
   if (label) {
     label.textContent = isOpen ? "Hide grid layers" : "Show grid layers";
@@ -439,11 +486,17 @@ function initializeUsLegendDrawer() {
   mapUiRightToggleEl?.addEventListener("click", () => {
     setUsLegendDrawerOpen(!mapUiRightEl?.classList.contains("is-open"));
   });
+  mapUiRightLabelToggleEl?.addEventListener("click", () => {
+    setUsLegendDrawerOpen(!mapUiRightEl?.classList.contains("is-open"));
+  });
   mapUiRightCloseEl?.addEventListener("click", () => setUsLegendDrawerOpen(false));
 }
 
 function initializeUsLayerDrawer() {
   mapUiLeftToggleEl?.addEventListener("click", () => {
+    setUsLayerDrawerOpen(!mapUiLeftEl?.classList.contains("is-open"));
+  });
+  mapUiLeftLabelToggleEl?.addEventListener("click", () => {
     setUsLayerDrawerOpen(!mapUiLeftEl?.classList.contains("is-open"));
   });
   mapUiLeftCloseEl?.addEventListener("click", () => setUsLayerDrawerOpen(false));
@@ -746,41 +799,7 @@ function renderUsReconductoringSummary(messageHtml = null) {
   void messageHtml;
 }
 
-const US_RECONDUCTORING_STATUS_COLORS = {
-  planned: "#2563eb",
-  "in operation": "#16a34a",
-  "in flight": "#f59e0b",
-  initiating: "#7c3aed",
-  mixed: "#be185d",
-  unknown: "#dc2626",
-};
-
-function normalizeReconductoringStatus(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ");
-}
-
-function getReconductoringFeatureStatusKey(feature) {
-  const projectRecords = Array.isArray(feature?.properties?.project_records)
-    ? feature.properties.project_records
-    : [];
-  const statuses = [...new Set(projectRecords.map((row) => normalizeReconductoringStatus(row?.Status)).filter(Boolean))];
-  if (!statuses.length) {
-    const fallbackStatus = normalizeReconductoringStatus(feature?.properties?.Status);
-    return fallbackStatus || "unknown";
-  }
-  if (statuses.length > 1) {
-    return "mixed";
-  }
-  return statuses[0];
-}
-
-function getReconductoringStatusColor(feature) {
-  const statusKey = getReconductoringFeatureStatusKey(feature);
-  return US_RECONDUCTORING_STATUS_COLORS[statusKey] || US_RECONDUCTORING_STATUS_COLORS.unknown;
-}
+const US_RECONDUCTORING_LINE_COLOR = "#dc2626";
 
 function buildUsReconductoringLeafletLayer(dataset) {
   const layerGroup = L.layerGroup();
@@ -815,11 +834,11 @@ function buildUsReconductoringLeafletLayer(dataset) {
         features: dataset.existingFeatures,
       },
       {
-        style: (feature) => ({
-          color: getReconductoringStatusColor(feature),
+        style: {
+          color: US_RECONDUCTORING_LINE_COLOR,
           weight: 3,
           opacity: 0.95,
-        }),
+        },
         onEachFeature: (feature, featureLayer) => bindPopup(featureLayer, feature),
       }
     );
@@ -833,11 +852,11 @@ function buildUsReconductoringLeafletLayer(dataset) {
         features: dataset.newLineFeatures,
       },
       {
-        style: (feature) => ({
-          color: getReconductoringStatusColor(feature),
+        style: {
+          color: US_RECONDUCTORING_LINE_COLOR,
           weight: 3.2,
           opacity: 0.96,
-        }),
+        },
         onEachFeature: (feature, featureLayer) => bindPopup(featureLayer, feature),
       }
     );
@@ -1076,6 +1095,37 @@ function getTapVoltageBucket(voltage) {
   return US_TAP_VOLTAGE_BUCKETS.find((bucket) => (
     bucket.exact === voltage || (bucket.exact === undefined && voltage > bucket.min && voltage <= bucket.max)
   )) || null;
+}
+
+function getSubstationVoltageBucket(voltage) {
+  if (!Number.isFinite(voltage)) {
+    return null;
+  }
+
+  return findVoltageBucket(US_SUBSTATION_VOLTAGE_BUCKETS, voltage);
+}
+
+function getTransmissionVoltageBucket(voltage, currentType) {
+  if (!Number.isFinite(voltage)) {
+    return null;
+  }
+
+  return findVoltageBucket(US_TRANSMISSION_VOLTAGE_BUCKETS, voltage, (bucket) => {
+    const matchesType = !bucket.currentType || bucket.currentType === currentType;
+    return matchesType;
+  });
+}
+
+function findVoltageBucket(buckets, voltage, predicate = () => true) {
+  const exactBucket = buckets.find((bucket) => bucket.exact === voltage && predicate(bucket));
+  if (exactBucket) {
+    return exactBucket;
+  }
+
+  return buckets.find((bucket) => {
+    const matchesRange = bucket.exact === undefined && voltage >= bucket.min && voltage <= bucket.max;
+    return matchesRange && predicate(bucket);
+  }) || null;
 }
 
 function setCardVisibility(card, visible) {
@@ -2375,7 +2425,7 @@ function buildUsReconductoringControl() {
 
     const marker = document.createElement("span");
     marker.className = "reconductoring-iso-swatch";
-    marker.style.backgroundColor = iso.regionStyle?.color || "#9a6700";
+    marker.style.backgroundColor = US_RECONDUCTORING_LINE_COLOR;
     marker.setAttribute("aria-hidden", "true");
 
     const text = document.createElement("span");
@@ -2644,7 +2694,6 @@ function renderUsVoltageControls() {
   };
 
   renderContainer(usTransmissionVoltageContainer, "Main Voltage Levels:", "primary", false);
-  renderContainer(usTransmissionOtherVoltageContainer, "Other Voltage Levels:", "other-levels", true);
 }
 
 function updateUsSubstationMasterCheckbox() {
@@ -2755,7 +2804,6 @@ function renderUsSubstationVoltageControls() {
   };
 
   renderContainer(usSubstationVoltageContainer, "Main Voltage Levels:", "primary", false);
-  renderContainer(usSubstationOtherVoltageContainer, "Other Voltage Range:", "other-range", true);
 }
 
 function renderUsTapVoltageControls() {
@@ -2990,48 +3038,11 @@ function buildUsTransmissionControl() {
   voltageContainer.className = "voltage-filter-container";
   body.appendChild(voltageContainer);
 
-  const actions = document.createElement("div");
-  actions.className = "section-inline-actions";
-
-  const otherLevelsButton = document.createElement("button");
-  otherLevelsButton.type = "button";
-  otherLevelsButton.className = "section-toggle-btn";
-  otherLevelsButton.textContent = "Other Voltage Levels";
-  actions.appendChild(otherLevelsButton);
-  body.appendChild(actions);
-
   card.appendChild(body);
   mapUiLeftEl.appendChild(card);
   enableSectionCardDrag(card);
 
-  const otherLevelsCard = document.createElement("section");
-  otherLevelsCard.id = "section-us-transmission-other-levels";
-  otherLevelsCard.className = "section-card floating-popup-card is-hidden-card";
-
-  const otherLevelsHeader = document.createElement("div");
-  otherLevelsHeader.className = "section-card-header";
-  const otherLevelsTitle = document.createElement("h2");
-  otherLevelsTitle.className = "section-card-title";
-  otherLevelsTitle.textContent = "Transmission - Other Voltage Levels";
-  otherLevelsHeader.appendChild(otherLevelsTitle);
-  otherLevelsCard.appendChild(otherLevelsHeader);
-
-  const otherLevelsBody = document.createElement("div");
-  otherLevelsBody.className = "section-card-body";
-  const otherLevelsContainer = document.createElement("div");
-  otherLevelsContainer.className = "voltage-filter-container is-multi-column";
-  otherLevelsBody.appendChild(otherLevelsContainer);
-  otherLevelsCard.appendChild(otherLevelsBody);
-  mapShellEl?.appendChild(otherLevelsCard);
-  enableSectionCardDrag(otherLevelsCard);
-
   usTransmissionVoltageContainer = voltageContainer;
-  usTransmissionOtherVoltageContainer = otherLevelsContainer;
-  usTransmissionOtherVoltageCard = otherLevelsCard;
-
-  otherLevelsButton.addEventListener("click", () => {
-    togglePopupCard(usTransmissionOtherVoltageCard, otherLevelsButton);
-  });
 }
 
 function buildUsSubstationControl() {
@@ -3076,16 +3087,6 @@ function buildUsSubstationControl() {
   const voltageContainer = document.createElement("div");
   voltageContainer.className = "voltage-filter-container";
   body.appendChild(voltageContainer);
-
-  const actions = document.createElement("div");
-  actions.className = "section-inline-actions";
-
-  const otherRangeButton = document.createElement("button");
-  otherRangeButton.type = "button";
-  otherRangeButton.className = "section-toggle-btn";
-  otherRangeButton.textContent = "Other Voltage Range";
-  actions.appendChild(otherRangeButton);
-  body.appendChild(actions);
 
   card.appendChild(body);
   mapUiLeftEl.appendChild(card);
@@ -3132,35 +3133,8 @@ function buildUsSubstationControl() {
   appendUsLegendCard(tapCard);
   enableSectionCardDrag(tapCard);
 
-  const otherRangeCard = document.createElement("section");
-  otherRangeCard.id = "section-us-substations-other-range";
-  otherRangeCard.className = "section-card floating-popup-card is-hidden-card";
-
-  const otherHeader = document.createElement("div");
-  otherHeader.className = "section-card-header";
-  const otherTitle = document.createElement("h2");
-  otherTitle.className = "section-card-title";
-  otherTitle.textContent = "Substations - Other Voltage Range";
-  otherHeader.appendChild(otherTitle);
-  otherRangeCard.appendChild(otherHeader);
-
-  const otherBody = document.createElement("div");
-  otherBody.className = "section-card-body";
-  const otherContainer = document.createElement("div");
-  otherContainer.className = "voltage-filter-container is-multi-column";
-  otherBody.appendChild(otherContainer);
-  otherRangeCard.appendChild(otherBody);
-  mapShellEl?.appendChild(otherRangeCard);
-  enableSectionCardDrag(otherRangeCard);
-
   usSubstationVoltageContainer = voltageContainer;
-  usSubstationOtherVoltageContainer = otherContainer;
-  usSubstationOtherVoltageCard = otherRangeCard;
   usTapVoltageContainer = tapVoltageContainer;
-
-  otherRangeButton.addEventListener("click", () => {
-    togglePopupCard(usSubstationOtherVoltageCard, otherRangeButton);
-  });
 
 }
 
@@ -3231,15 +3205,24 @@ async function loadUsTransmissionLayer() {
     let sortVoltage = -1;
     let sortPrimaryRank = Number.POSITIVE_INFINITY;
 
-    if (normalizedVoltage && normalizedVoltage !== "-99999") {
-      const isPrimary = US_TRANSMISSION_PRIMARY_LEVELS.has(normalizedVoltage);
-      group = isPrimary ? "primary" : "other-levels";
-      displayLabel = formatTransmissionVoltageDisplayLabel(normalizedVoltage, currentType);
-      sortVoltage = Number(normalizedVoltage);
-      sortPrimaryRank = getPrimaryVoltageSortRank(normalizedVoltage);
-    } else if (normalizedVoltage === "-99999") {
-      group = "other-levels";
-      displayLabel = "-99999";
+    const isNotDetermined = normalizedVoltage === "-99999" || normalizedVoltage === "-999999";
+    if (normalizedVoltage && !isNotDetermined) {
+      const transmissionBucket = getTransmissionVoltageBucket(Number(normalizedVoltage), currentType);
+      if (transmissionBucket) {
+        group = "primary";
+        displayLabel = transmissionBucket.label;
+        sortVoltage = transmissionBucket.sortVoltage;
+        sortPrimaryRank = transmissionBucket.sortRank;
+      } else {
+        group = "other-levels";
+        displayLabel = formatTransmissionVoltageDisplayLabel(normalizedVoltage, currentType);
+        sortVoltage = Number(normalizedVoltage);
+        sortPrimaryRank = getPrimaryVoltageSortRank(normalizedVoltage);
+      }
+    } else if (isNotDetermined) {
+      group = "primary";
+      displayLabel = "Not Determined";
+      sortPrimaryRank = 99;
     }
 
     const key = `${displayLabel}||${group}`;
