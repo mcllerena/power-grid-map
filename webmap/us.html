@@ -77,7 +77,17 @@
         </aside>
 
         <aside id="map-ui-left" class="map-ui-column" aria-label="Left layer controls"></aside>
-        <aside id="map-ui-right" class="map-ui-column" aria-label="Right layer controls"></aside>
+        <button id="map-ui-right-toggle" class="map-ui-right-toggle" type="button" aria-controls="map-ui-right" aria-expanded="false" title="Show map legends">
+          <span aria-hidden="true">&#8249;</span>
+          <span class="sr-only">Show map legends</span>
+        </button>
+        <aside id="map-ui-right" class="map-ui-column" aria-label="Map legends" aria-hidden="true">
+          <div id="map-ui-right-header" class="map-ui-right-header">
+            <h2>Map legends</h2>
+            <button id="map-ui-right-close" class="map-ui-right-close" type="button" aria-label="Hide map legends" title="Hide map legends">&times;</button>
+          </div>
+          <div id="map-ui-right-stack" class="map-ui-right-stack"></div>
+        </aside>
       </main>
     </div>
 

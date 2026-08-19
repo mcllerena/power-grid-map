@@ -207,8 +207,23 @@ const US_TRANSMISSION_BASENAME = "Electric_Power_Transmission_Lines";
 const US_PCA_BASENAME = "US_PCA";
 const US_SUBSTATIONS_FILENAME = "Substations.csv";
 const US_POWER_PLANTS_FILENAME = "Power_Plants.csv";
-const US_DATA_CENTERS_ATLAS_CSV = "im3_open_source_data_center_atlas/im3_open_source_data_center_atlas.csv";
-const US_DATA_CENTERS_POWER_CSV = "im3_open_source_data_center_atlas/data_centers.csv";
+const US_DATA_CENTERS_ATLAS_CSV = "im3_open_source_data_center_atlas_v2026.02.09/im3_open_source_data_center_atlas_v2026.02.09.csv";
+const US_PROJECTED_DATA_CENTERS_ROOT = "im3_projected_data_centers_v1.1";
+const US_PROJECTED_DATA_CENTER_SCENARIOS = [
+  { key: "low_growth", label: "Low growth", color: "#0e7490" },
+  { key: "moderate_growth", label: "Moderate growth", color: "#15803d" },
+  { key: "high_growth", label: "High growth", color: "#c2410c" },
+  { key: "higher_growth", label: "Higher growth", color: "#b91c1c" },
+];
+const US_PROJECTED_DATA_CENTER_WEIGHTS = [0, 25, 50, 75, 100];
+const ESRI_102003 = {
+  semiMajorAxis: 6378137,
+  inverseFlattening: 298.257222101,
+  latitudeOfOrigin: 37.5 * Math.PI / 180,
+  centralMeridian: -96 * Math.PI / 180,
+  firstStandardParallel: 29.5 * Math.PI / 180,
+  secondStandardParallel: 45.5 * Math.PI / 180,
+};
 const US_VOLTAGE_PALETTE = [
   "#2563eb",
   "#0891b2",
@@ -344,6 +359,8 @@ let usPcaLoaded = false;
 let usDataCenterLayer = null;
 let usDataCenterVisible = false;
 let usDataCenterLoaded = false;
+const usProjectedDataCenterLayers = new Map();
+const usProjectedDataCenterCheckboxes = new Map();
 const usReconductoringLayers = new Map();
 const usReconductoringCheckboxes = new Map();
 const usReconductoringSummaries = new Map();
@@ -353,9 +370,43 @@ let usStatusTrackingActive = false;
 const mapShellEl = document.getElementById("map-shell");
 const mapUiLeftEl = document.getElementById("map-ui-left");
 const mapUiRightEl = document.getElementById("map-ui-right");
+const mapUiRightStackEl = document.getElementById("map-ui-right-stack");
+const mapUiRightToggleEl = document.getElementById("map-ui-right-toggle");
+const mapUiRightCloseEl = document.getElementById("map-ui-right-close");
 const statusListEl = document.getElementById("status-list");
 const statusPanelEl = document.getElementById("status-panel");
 const mapTitleCardEl = document.getElementById("map-title-card");
+
+function setUsLegendDrawerOpen(isOpen) {
+  if (!mapUiRightEl || !mapUiRightToggleEl) {
+    return;
+  }
+
+  mapUiRightEl.classList.toggle("is-open", isOpen);
+  mapUiRightEl.setAttribute("aria-hidden", String(!isOpen));
+  mapUiRightToggleEl.setAttribute("aria-expanded", String(isOpen));
+  mapUiRightToggleEl.classList.toggle("is-open", isOpen);
+  mapUiRightToggleEl.title = isOpen ? "Hide map legends" : "Show map legends";
+  const label = mapUiRightToggleEl.querySelector(".sr-only");
+  if (label) {
+    label.textContent = isOpen ? "Hide map legends" : "Show map legends";
+  }
+}
+
+function initializeUsLegendDrawer() {
+  mapUiRightToggleEl?.addEventListener("click", () => {
+    setUsLegendDrawerOpen(!mapUiRightEl?.classList.contains("is-open"));
+  });
+  mapUiRightCloseEl?.addEventListener("click", () => setUsLegendDrawerOpen(false));
+}
+
+function appendUsLegendCard(card) {
+  if (mapUiRightStackEl) {
+    mapUiRightStackEl.appendChild(card);
+  } else {
+    mapUiRightEl?.appendChild(card);
+  }
+}
 
 map.getContainer().addEventListener("mouseleave", () => {
   if (activeHoverPopupLayer) {
@@ -627,6 +678,13 @@ function refreshStatusFromVisibility() {
   if (dataCentersVisible) {
     const dataCenterCount = usDataCenterLayer.getLayers().length;
     addItem("us-data-centers", `Data centers: ${dataCenterCount} site(s) visible`);
+  }
+
+  const projectedDataCenterCount = [...usProjectedDataCenterLayers.values()]
+    .filter((layer) => map.hasLayer(layer))
+    .reduce((total, layer) => total + layer.getLayers().length, 0);
+  if (projectedDataCenterCount) {
+    addItem("us-projected-data-centers", `Projected data centers: ${projectedDataCenterCount} area(s) visible`);
   }
 
   appendVisibleEntryStatuses(addItem, {
@@ -1795,11 +1853,7 @@ function buildUsPcaControl() {
   body.appendChild(showRow);
   card.appendChild(body);
 
-  if (mapUiRightEl.firstChild) {
-    mapUiRightEl.insertBefore(card, mapUiRightEl.firstChild);
-  } else {
-    mapUiRightEl.appendChild(card);
-  }
+  appendUsLegendCard(card);
 
   enableSectionCardDrag(card);
 
@@ -1860,85 +1914,10 @@ function buildDataCenterPopupHTML(record) {
   return `<table>${tableRows}</table>`;
 }
 
-function normalizeDataCenterMatchKey(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function findPowerMatchForAtlasRecord(atlasRecord, indexedPowerRecords) {
-  const atlasName = normalizeDataCenterMatchKey(atlasRecord?.name);
-  if (atlasName && indexedPowerRecords.byName.has(atlasName)) {
-    return indexedPowerRecords.byName.get(atlasName);
-  }
-
-  // Conservative fuzzy name match for long names only.
-  if (atlasName.length >= 10) {
-    const fuzzy = indexedPowerRecords.records.find((row) => row.name.includes(atlasName) || atlasName.includes(row.name));
-    if (fuzzy) {
-      return fuzzy;
-    }
-  }
-
-  // Fallback: match on operator + state hints when available.
-  const operator = normalizeDataCenterMatchKey(atlasRecord?.operator);
-  const stateAbb = String(atlasRecord?.state_abb || "").toUpperCase().trim();
-  if (!operator || !stateAbb) {
-    return null;
-  }
-
-  const byOperator = indexedPowerRecords.byOperator.get(operator) || [];
-  const stateMatch = byOperator.find((row) => row.address.includes(`, ${stateAbb} `));
-  return stateMatch || null;
-}
-
 async function loadUsDataCenterLayer() {
   const atlasCsvUrl = makeAbsoluteUrl(`${US_DATA_ROOT}/${US_DATA_CENTERS_ATLAS_CSV}`);
-  const powerCsvUrl = makeAbsoluteUrl(`${US_DATA_ROOT}/${US_DATA_CENTERS_POWER_CSV}`);
-  const [atlasCsvText, powerCsvText] = await Promise.all([
-    fetchText(atlasCsvUrl),
-    fetchText(powerCsvUrl),
-  ]);
+  const atlasCsvText = await fetchText(atlasCsvUrl);
   const records = parseCsvText(atlasCsvText);
-  const powerRecords = parseCsvText(powerCsvText);
-
-  const indexedPowerRecords = {
-    byName: new Map(),
-    byOperator: new Map(),
-    records: [],
-  };
-
-  for (const row of powerRecords) {
-    const powerMw = parseLooseNumericValue(row["Current power (MW)"]);
-    if (!Number.isFinite(powerMw)) {
-      continue;
-    }
-
-    const normalizedName = normalizeDataCenterMatchKey(row.Name);
-    const normalizedOwner = normalizeDataCenterMatchKey(row.Owner);
-    const normalizedAddress = String(row.Address || "").toUpperCase();
-    const indexedRow = {
-      name: normalizedName,
-      owner: normalizedOwner,
-      address: normalizedAddress,
-      powerMw,
-    };
-
-    if (normalizedName && !indexedPowerRecords.byName.has(normalizedName)) {
-      indexedPowerRecords.byName.set(normalizedName, indexedRow);
-    }
-
-    if (normalizedOwner) {
-      if (!indexedPowerRecords.byOperator.has(normalizedOwner)) {
-        indexedPowerRecords.byOperator.set(normalizedOwner, []);
-      }
-      indexedPowerRecords.byOperator.get(normalizedOwner).push(indexedRow);
-    }
-
-    indexedPowerRecords.records.push(indexedRow);
-  }
 
   usDataCenterLayer = L.layerGroup();
 
@@ -1957,11 +1936,6 @@ async function loadUsDataCenterLayer() {
       fillOpacity: 0.9,
     });
 
-    const powerMatch = findPowerMatchForAtlasRecord(record, indexedPowerRecords);
-    if (powerMatch && Number.isFinite(powerMatch.powerMw)) {
-      record.power_mw = powerMatch.powerMw;
-    }
-
     bindHoverPersistentPopup(marker, buildDataCenterPopupHTML(record));
     usDataCenterLayer.addLayer(marker);
   }
@@ -1970,6 +1944,164 @@ async function loadUsDataCenterLayer() {
   if (usDataCenterVisible) {
     usDataCenterLayer.addTo(map);
   }
+}
+
+function buildProjectedDataCenterPopupHTML(properties, scenarioLabel, weight) {
+  const rows = [
+    ["Scenario", scenarioLabel],
+    ["Market gravity", `${weight}%`],
+    ["Region", properties.region || "-"],
+    ["IT power", `${parseLooseNumericValue(properties.data_center_it_power_mw)?.toLocaleString() || "-"} MW`],
+    ["Campus size", `${parseLooseNumericValue(properties.campus_size_square_ft)?.toLocaleString() || "-"} sq ft`],
+    ["Total cost", `${parseLooseNumericValue(properties.total_cost_million_usd)?.toLocaleString() || "-"} million USD`],
+  ];
+  const tableRows = rows
+    .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${escapeHtml(value)}</td></tr>`)
+    .join("");
+  return `<table>${tableRows}</table>`;
+}
+
+function inverseAlbersEqualArea([x, y]) {
+  const projection = ESRI_102003;
+  const flattening = 1 / projection.inverseFlattening;
+  const eccentricitySquared = 2 * flattening - flattening ** 2;
+  const eccentricity = Math.sqrt(eccentricitySquared);
+  const meridionalPart = (latitude) => {
+    const sine = Math.sin(latitude);
+    return Math.cos(latitude) / Math.sqrt(1 - eccentricitySquared * sine ** 2);
+  };
+  const authalicLatitude = (latitude) => {
+    const sine = Math.sin(latitude);
+    return (1 - eccentricitySquared) * (
+      sine / (1 - eccentricitySquared * sine ** 2)
+      - Math.log((1 - eccentricity * sine) / (1 + eccentricity * sine)) / (2 * eccentricity)
+    );
+  };
+
+  const m1 = meridionalPart(projection.firstStandardParallel);
+  const m2 = meridionalPart(projection.secondStandardParallel);
+  const q0 = authalicLatitude(projection.latitudeOfOrigin);
+  const q1 = authalicLatitude(projection.firstStandardParallel);
+  const q2 = authalicLatitude(projection.secondStandardParallel);
+  const n = (m1 ** 2 - m2 ** 2) / (q2 - q1);
+  const constant = m1 ** 2 + n * q1;
+  const rho0 = projection.semiMajorAxis * Math.sqrt(constant - n * q0) / n;
+  const rho = Math.sqrt(x ** 2 + (rho0 - y) ** 2);
+  const theta = Math.atan2(x, rho0 - y);
+  const targetQ = (constant - (rho * n / projection.semiMajorAxis) ** 2) / n;
+
+  let latitude = Math.asin(targetQ / 2);
+  for (let iteration = 0; iteration < 8; iteration += 1) {
+    const sine = Math.sin(latitude);
+    const denominator = 1 - eccentricitySquared * sine ** 2;
+    const currentQ = authalicLatitude(latitude);
+    const derivative = 2 * (1 - eccentricitySquared) * Math.cos(latitude) / denominator ** 2;
+    latitude += (targetQ - currentQ) / derivative;
+  }
+
+  const longitude = projection.centralMeridian + theta / n;
+  return [longitude * 180 / Math.PI, latitude * 180 / Math.PI];
+}
+
+function reprojectProjectedDataCenterGeometry(geometry) {
+  if (!geometry) {
+    return geometry;
+  }
+  if (geometry.type === "GeometryCollection") {
+    return {
+      ...geometry,
+      geometries: geometry.geometries.map(reprojectProjectedDataCenterGeometry),
+    };
+  }
+  const mapCoordinates = (coordinates) => (
+    typeof coordinates[0] === "number"
+      ? inverseAlbersEqualArea(coordinates)
+      : coordinates.map(mapCoordinates)
+  );
+  return { ...geometry, coordinates: mapCoordinates(geometry.coordinates) };
+}
+
+function reprojectProjectedDataCenterFeatureCollection(data) {
+  return {
+    ...data,
+    features: (data.features || []).map((feature) => ({
+      ...feature,
+      geometry: reprojectProjectedDataCenterGeometry(feature.geometry),
+    })),
+  };
+}
+
+function getProjectedDataCenterFeaturePoint(feature) {
+  const coordinates = [];
+  const collectCoordinates = (value) => {
+    if (typeof value[0] === "number") {
+      coordinates.push(value);
+      return;
+    }
+    value.forEach(collectCoordinates);
+  };
+  collectCoordinates(feature.geometry?.coordinates || []);
+  if (!coordinates.length) {
+    return null;
+  }
+  const [longitude, latitude] = coordinates.reduce(
+    ([sumLongitude, sumLatitude], [nextLongitude, nextLatitude]) => [
+      sumLongitude + nextLongitude,
+      sumLatitude + nextLatitude,
+    ],
+    [0, 0]
+  );
+  return [latitude / coordinates.length, longitude / coordinates.length];
+}
+
+async function loadProjectedDataCenterLayer(scenario, weight) {
+  const layerKey = `${scenario.key}:${weight}`;
+  if (usProjectedDataCenterLayers.has(layerKey)) {
+    return usProjectedDataCenterLayers.get(layerKey);
+  }
+
+  const fileName = `${scenario.key}_${weight}_market_gravity.geojson`;
+  const url = makeAbsoluteUrl(`${US_DATA_ROOT}/${US_PROJECTED_DATA_CENTERS_ROOT}/${scenario.key}/${fileName}`);
+  const data = reprojectProjectedDataCenterFeatureCollection(JSON.parse(await fetchText(url)));
+  const polygonLayer = L.geoJSON(data, {
+    style: {
+      color: scenario.color,
+      weight: 1,
+      fillColor: scenario.color,
+      fillOpacity: 0.24,
+    },
+    onEachFeature: (feature, featureLayer) => {
+      bindHoverPersistentPopup(
+        featureLayer,
+        buildProjectedDataCenterPopupHTML(feature.properties || {}, scenario.label, weight)
+      );
+    },
+  });
+
+  const markerLayer = L.layerGroup();
+  for (const feature of data.features || []) {
+    const point = getProjectedDataCenterFeaturePoint(feature);
+    if (!point) {
+      continue;
+    }
+    const marker = L.circleMarker(point, {
+      radius: 3.5,
+      color: scenario.color,
+      weight: 1,
+      fillColor: scenario.color,
+      fillOpacity: 0.8,
+    });
+    bindHoverPersistentPopup(
+      marker,
+      buildProjectedDataCenterPopupHTML(feature.properties || {}, scenario.label, weight)
+    );
+    markerLayer.addLayer(marker);
+  }
+
+  const layer = L.layerGroup([polygonLayer, markerLayer]);
+
+  usProjectedDataCenterLayers.set(layerKey, layer);
+  return layer;
 }
 
 function buildUsDataCenterControl() {
@@ -1993,24 +2125,102 @@ function buildUsDataCenterControl() {
   const body = document.createElement("div");
   body.className = "section-card-body";
 
-  const showRow = document.createElement("label");
-  showRow.className = "voltage-filter-row";
-  const showCheckbox = document.createElement("input");
-  showCheckbox.type = "checkbox";
-  showCheckbox.checked = usDataCenterVisible;
-  const showText = document.createElement("span");
-  showText.textContent = "Show data centers";
-  showRow.appendChild(showCheckbox);
-  showRow.appendChild(showText);
-  body.appendChild(showRow);
+  const actualRow = document.createElement("label");
+  actualRow.className = "voltage-filter-row";
+  const actualCheckbox = document.createElement("input");
+  actualCheckbox.type = "checkbox";
+  actualCheckbox.checked = usDataCenterVisible;
+  const actualSwatch = document.createElement("span");
+  actualSwatch.className = "data-center-actual-swatch";
+  actualSwatch.setAttribute("aria-hidden", "true");
+  const actualText = document.createElement("span");
+  actualText.textContent = "Actual data centers";
+  actualRow.append(actualCheckbox, actualSwatch, actualText);
+  body.appendChild(actualRow);
+
+  const projectedTitle = document.createElement("div");
+  projectedTitle.className = "voltage-filter-title data-center-group-title";
+  projectedTitle.textContent = "Projected data centers";
+  body.appendChild(projectedTitle);
+
+  for (const scenario of US_PROJECTED_DATA_CENTER_SCENARIOS) {
+    const scenarioTitle = document.createElement("div");
+    scenarioTitle.className = "data-center-scenario-title data-center-scenario-heading";
+    const scenarioCheckbox = document.createElement("input");
+    scenarioCheckbox.type = "checkbox";
+    scenarioCheckbox.setAttribute("aria-label", `Show all ${scenario.label} projected data centers`);
+    const scenarioLabel = document.createElement("span");
+    scenarioLabel.textContent = scenario.label;
+    scenarioTitle.append(scenarioCheckbox, scenarioLabel);
+    body.appendChild(scenarioTitle);
+    const scenarioDataCheckboxes = [];
+
+    const updateScenarioCheckbox = () => {
+      const checkedCount = scenarioDataCheckboxes.filter((checkbox) => checkbox.checked).length;
+      scenarioCheckbox.checked = checkedCount === scenarioDataCheckboxes.length;
+      scenarioCheckbox.indeterminate = checkedCount > 0 && checkedCount < scenarioDataCheckboxes.length;
+    };
+
+    scenarioCheckbox.addEventListener("change", () => {
+      const nextChecked = scenarioCheckbox.checked;
+      for (const checkbox of scenarioDataCheckboxes) {
+        if (checkbox.checked !== nextChecked) {
+          checkbox.checked = nextChecked;
+          checkbox.dispatchEvent(new Event("change"));
+        }
+      }
+    });
+
+    for (const weight of US_PROJECTED_DATA_CENTER_WEIGHTS) {
+      const layerKey = `${scenario.key}:${weight}`;
+      const row = document.createElement("label");
+      row.className = "voltage-filter-row data-center-projected-row";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      const swatch = document.createElement("span");
+      swatch.className = "data-center-projected-swatch";
+      swatch.style.backgroundColor = scenario.color;
+      swatch.setAttribute("aria-hidden", "true");
+      const text = document.createElement("span");
+      text.textContent = `${weight}% market gravity`;
+
+      row.append(checkbox, swatch, text);
+      body.appendChild(row);
+      usProjectedDataCenterCheckboxes.set(layerKey, checkbox);
+      scenarioDataCheckboxes.push(checkbox);
+
+      checkbox.addEventListener("change", async () => {
+        checkbox.disabled = true;
+        try {
+          const layer = await loadProjectedDataCenterLayer(scenario, weight);
+          if (checkbox.checked) {
+            layer.addTo(map);
+          } else if (map.hasLayer(layer)) {
+            map.removeLayer(layer);
+          }
+          activateStatusTracking();
+        } catch (error) {
+          checkbox.checked = false;
+          setStatusById("us-data-centers", "warn", `Projected data centers load skipped: ${error?.message || "unknown error"}`);
+          console.warn("Projected data centers load skipped", error);
+        } finally {
+          checkbox.disabled = false;
+          updateScenarioCheckbox();
+        }
+      });
+    }
+
+    updateScenarioCheckbox();
+  }
 
   card.appendChild(body);
-  mapUiRightEl.appendChild(card);
+  appendUsLegendCard(card);
   enableSectionCardDrag(card);
 
-  showCheckbox.addEventListener("change", () => {
+  actualCheckbox.addEventListener("change", () => {
     const applyToggle = async () => {
-      usDataCenterVisible = showCheckbox.checked;
+      usDataCenterVisible = actualCheckbox.checked;
 
       if (usDataCenterVisible && !usDataCenterLoaded) {
         try {
@@ -2019,7 +2229,7 @@ function buildUsDataCenterControl() {
           setStatusById("us-data-centers", "warn", `US data centers load skipped: ${error?.message || "unknown error"}`);
           console.warn("US data centers load skipped", error);
           usDataCenterVisible = false;
-          showCheckbox.checked = false;
+          actualCheckbox.checked = false;
           activateStatusTracking();
           return;
         }
@@ -2091,10 +2301,16 @@ function buildUsReconductoringControl() {
     checkbox.checked = false;
     checkbox.disabled = !iso.enabled;
 
+    const marker = document.createElement("span");
+    marker.className = "reconductoring-iso-swatch";
+    marker.style.backgroundColor = iso.regionStyle?.color || "#9a6700";
+    marker.setAttribute("aria-hidden", "true");
+
     const text = document.createElement("span");
     text.textContent = iso.enabled ? iso.label : `${iso.label} (coming soon)`;
 
     row.appendChild(checkbox);
+    row.appendChild(marker);
     row.appendChild(text);
     optionsWrap.appendChild(row);
     usReconductoringCheckboxes.set(iso.key, checkbox);
@@ -2133,11 +2349,7 @@ function buildUsReconductoringControl() {
   card.appendChild(body);
 
   const pcaCard = document.getElementById("section-us-pca");
-  if (pcaCard?.parentNode) {
-    pcaCard.parentNode.insertBefore(card, pcaCard.nextSibling);
-  } else {
-    mapUiRightEl.appendChild(card);
-  }
+  appendUsLegendCard(card);
 
   enableSectionCardDrag(card);
 }
@@ -2838,23 +3050,7 @@ function buildUsSubstationControl() {
   tapBody.appendChild(tapActions);
 
   tapCard.appendChild(tapBody);
-  // Insert TAPs card just after the power plants card (on the right column)
-  const powerPlantsCard = document.getElementById("section-us-power-plants");
-  const pcaCard = document.getElementById("section-us-pca");
-  if (powerPlantsCard && powerPlantsCard.parentNode) {
-    // Insert after power plants card
-    powerPlantsCard.parentNode.insertBefore(tapCard, powerPlantsCard.nextSibling);
-  } else if (pcaCard && pcaCard.parentNode) {
-    // Fallback: insert after PCA card
-    pcaCard.parentNode.insertBefore(tapCard, pcaCard.nextSibling);
-  } else {
-    // Fallback: append to right column
-    if (mapUiRightEl) {
-      mapUiRightEl.appendChild(tapCard);
-    } else {
-      mapUiLeftEl.appendChild(tapCard);
-    }
-  }
+  appendUsLegendCard(tapCard);
   enableSectionCardDrag(tapCard);
 
   const otherRangeCard = document.createElement("section");
@@ -2957,7 +3153,7 @@ function buildUsPowerPlantControl() {
   body.appendChild(typeContainer);
 
   card.appendChild(body);
-  mapUiRightEl.appendChild(card);
+  appendUsLegendCard(card);
   enableSectionCardDrag(card);
 
   usPowerPlantTypeContainer = typeContainer;
@@ -3166,6 +3362,7 @@ async function initializeUsMap() {
   initializeThemeToggle();
   initializeStatusPanelToggle();
   initializeCountrySwitcherNavigation();
+  initializeUsLegendDrawer();
   buildUsSubstationControl();
   buildUsTransmissionControl();
   buildUsPcaControl();

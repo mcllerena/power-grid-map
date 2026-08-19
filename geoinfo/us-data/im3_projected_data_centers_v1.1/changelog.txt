@@ -1,0 +1,4 @@
+version 1.1
+- Updated protected lands exclusions to better capture current area boundaries by adding standalone NPS areas and USFWS critical habitat exclusion areas.
+- Added additional siting constraints for wetlands and US BIA land areas.
+- Updated the airport exclusion layer to better capture airport boundaries.
