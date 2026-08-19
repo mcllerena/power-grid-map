@@ -80,16 +80,29 @@ async function loadUsSubstationLayer() {
     }
 
     const normalizedVoltage = normalizeVoltageValueLabel(record.MAX_VOLT);
+    const isTap = isTapRecord(record);
     let group = "other-range";
     let displayLabel = String(record.MAX_VOLT || "Unknown").trim() || "Unknown";
     let sortVoltage = -1;
     let sortPrimaryRank = Number.POSITIVE_INFINITY;
 
     if (normalizedVoltage && normalizedVoltage !== "-99999") {
-      group = US_SUBSTATION_PRIMARY_LEVELS.has(normalizedVoltage) ? "primary" : "other-range";
-      displayLabel = formatSubstationVoltageDisplayLabel(normalizedVoltage);
-      sortVoltage = Number(normalizedVoltage);
-      sortPrimaryRank = getPrimaryVoltageSortRank(normalizedVoltage);
+      if (isTap) {
+        const tapBucket = getTapVoltageBucket(Number(normalizedVoltage));
+        if (tapBucket) {
+          group = "primary";
+          displayLabel = tapBucket.label;
+          sortVoltage = tapBucket.sortVoltage;
+          sortPrimaryRank = tapBucket.sortRank;
+        }
+      }
+
+      if (!isTap || group !== "primary") {
+        group = US_SUBSTATION_PRIMARY_LEVELS.has(normalizedVoltage) ? "primary" : "other-range";
+        displayLabel = formatSubstationVoltageDisplayLabel(normalizedVoltage);
+        sortVoltage = Number(normalizedVoltage);
+        sortPrimaryRank = getPrimaryVoltageSortRank(normalizedVoltage);
+      }
     } else if (normalizedVoltage === "-99999") {
       displayLabel = "-99999";
     }
@@ -199,7 +212,7 @@ const US_BOUNDS = [
   [49.6, -66.8],
 ];
 const US_DEFAULT_CENTER = [39.5, -98.35];
-const US_DEFAULT_ZOOM = 5;
+const US_DEFAULT_ZOOM = 4;
 
 const THEME_STORAGE_KEY = "webmap-theme";
 const US_DATA_ROOT = "../geoinfo/us-data";
@@ -243,6 +256,16 @@ const US_DEFAULT_VISIBLE_SUBSTATION_LEVELS = new Set();
 const US_TRANSMISSION_PRIMARY_LEVELS = new Set(["1000", "765", "500", "450", "400", "348", "345", "230", "220", "169", "161", "138", "115", "69"]);
 const US_SUBSTATION_PRIMARY_LEVELS = new Set(["1000", "765", "500", "450", "400", "348", "345", "230", "220", "169", "161", "138", "115", "69"]);
 const US_PRIMARY_LEVEL_SORT_ORDER = ["1000", "765", "500", "450", "400", "348", "345", "230", "220", "169", "161", "138", "115", "69", "34.5"];
+const US_TAP_VOLTAGE_BUCKETS = [
+  { label: "500 kV AC", exact: 500, sortRank: 0, sortVoltage: 500 },
+  { label: "345 kV AC", exact: 345, sortRank: 1, sortVoltage: 345 },
+  { label: "275 kV AC", exact: 275, sortRank: 2, sortVoltage: 275 },
+  { label: "230 kV AC", exact: 230, sortRank: 3, sortVoltage: 230 },
+  { label: "> 138 - 169 kV AC", min: 138, max: 169, sortRank: 4, sortVoltage: 169 },
+  { label: "> 69 - 138 kV AC", min: 69, max: 138, sortRank: 5, sortVoltage: 138 },
+  { label: "> 35 - 69 kV AC", min: 35, max: 69, sortRank: 6, sortVoltage: 69 },
+  { label: "> 0 - 35 kV AC", min: 0, max: 35, sortRank: 7, sortVoltage: 35 },
+];
 const US_TYPE_PALETTE = [
   "#e67e22",
   "#1d7db8",
@@ -311,6 +334,10 @@ function addRecenterControlButton() {
   });
 
   zoomControl.appendChild(button);
+  const themeToggle = document.getElementById("theme-toggle");
+  if (themeToggle) {
+    zoomControl.appendChild(themeToggle);
+  }
 }
 
 addRecenterControlButton();
@@ -346,8 +373,6 @@ let usSubstationOtherVoltageCard = null;
 let usTapLayer = null;
 let usTapVoltageLayers = new Map();
 let usTapVoltageContainer = null;
-let usTapOtherVoltageContainer = null;
-let usTapOtherVoltageCard = null;
 let usPowerPlantLayer = null;
 let usPowerPlantTypeLayers = new Map();
 let usPowerPlantMasterCheckbox = null;
@@ -369,12 +394,13 @@ let usStatusTrackingActive = false;
 
 const mapShellEl = document.getElementById("map-shell");
 const mapUiLeftEl = document.getElementById("map-ui-left");
+const mapUiLeftToggleEl = document.getElementById("map-ui-left-toggle");
+const mapUiLeftCloseEl = document.getElementById("map-ui-left-close");
 const mapUiRightEl = document.getElementById("map-ui-right");
 const mapUiRightStackEl = document.getElementById("map-ui-right-stack");
 const mapUiRightToggleEl = document.getElementById("map-ui-right-toggle");
 const mapUiRightCloseEl = document.getElementById("map-ui-right-close");
 const statusListEl = document.getElementById("status-list");
-const statusPanelEl = document.getElementById("status-panel");
 const mapTitleCardEl = document.getElementById("map-title-card");
 
 function setUsLegendDrawerOpen(isOpen) {
@@ -393,11 +419,34 @@ function setUsLegendDrawerOpen(isOpen) {
   }
 }
 
+function setUsLayerDrawerOpen(isOpen) {
+  if (!mapUiLeftEl || !mapUiLeftToggleEl) {
+    return;
+  }
+
+  mapUiLeftEl.classList.toggle("is-open", isOpen);
+  mapUiLeftEl.setAttribute("aria-hidden", String(!isOpen));
+  mapUiLeftToggleEl.setAttribute("aria-expanded", String(isOpen));
+  mapUiLeftToggleEl.classList.toggle("is-open", isOpen);
+  mapUiLeftToggleEl.title = isOpen ? "Hide grid layers" : "Show grid layers";
+  const label = mapUiLeftToggleEl.querySelector(".sr-only");
+  if (label) {
+    label.textContent = isOpen ? "Hide grid layers" : "Show grid layers";
+  }
+}
+
 function initializeUsLegendDrawer() {
   mapUiRightToggleEl?.addEventListener("click", () => {
     setUsLegendDrawerOpen(!mapUiRightEl?.classList.contains("is-open"));
   });
   mapUiRightCloseEl?.addEventListener("click", () => setUsLegendDrawerOpen(false));
+}
+
+function initializeUsLayerDrawer() {
+  mapUiLeftToggleEl?.addEventListener("click", () => {
+    setUsLayerDrawerOpen(!mapUiLeftEl?.classList.contains("is-open"));
+  });
+  mapUiLeftCloseEl?.addEventListener("click", () => setUsLayerDrawerOpen(false));
 }
 
 function appendUsLegendCard(card) {
@@ -470,83 +519,6 @@ function initializeThemeToggle() {
     applyTheme(nextTheme);
     localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
   });
-}
-
-function initializeStatusPanelToggle() {
-  if (!statusPanelEl) {
-    return;
-  }
-
-  const heading = statusPanelEl.querySelector("h2");
-  const statusList = statusPanelEl.querySelector("#status-list");
-  if (!(heading instanceof HTMLElement) || !(statusList instanceof HTMLElement) || statusPanelEl.querySelector(".section-toggle-btn")) {
-    return;
-  }
-
-  let body = statusPanelEl.querySelector(".section-card-body");
-  if (!body) {
-    body = document.createElement("div");
-    body.className = "section-card-body";
-    statusList.parentNode?.insertBefore(body, statusList);
-    body.appendChild(statusList);
-  }
-
-  const header = document.createElement("div");
-  header.className = "section-card-header";
-  heading.parentNode?.insertBefore(header, heading);
-  header.appendChild(heading);
-
-  const toggleButton = document.createElement("button");
-  toggleButton.type = "button";
-  toggleButton.className = "section-toggle-btn";
-  const setCollapsedState = (collapsed) => {
-    statusPanelEl.classList.toggle("is-collapsed", collapsed);
-    body.hidden = collapsed;
-    body.setAttribute("aria-hidden", String(collapsed));
-    toggleButton.textContent = collapsed ? "Show" : "Hide";
-    toggleButton.setAttribute("aria-expanded", String(!collapsed));
-    toggleButton.setAttribute("title", `${collapsed ? "Show" : "Hide"} Status Window`);
-  };
-
-  setCollapsedState(false);
-
-  toggleButton.addEventListener("click", () => {
-    setCollapsedState(!statusPanelEl.classList.contains("is-collapsed"));
-  });
-  header.appendChild(toggleButton);
-}
-
-function positionUsStatusPanelNearSubstations() {
-  if (!statusPanelEl || !mapShellEl) {
-    return;
-  }
-
-  const substationCard = document.getElementById("section-us-substations");
-  if (!substationCard) {
-    return;
-  }
-
-  const shellRect = mapShellEl.getBoundingClientRect();
-  const substationRect = substationCard.getBoundingClientRect();
-  const statusRect = statusPanelEl.getBoundingClientRect();
-
-  const gap = 12;
-  let left = substationRect.right - shellRect.left + gap;
-  const bottom = gap;
-
-  const maxLeft = Math.max(0, shellRect.width - statusRect.width - gap);
-
-  if (left > maxLeft) {
-    left = substationRect.left - shellRect.left;
-  }
-
-  statusPanelEl.classList.add("draggable-card", "is-floating");
-  statusPanelEl.style.left = `${clamp(left, gap, maxLeft)}px`;
-  statusPanelEl.style.top = "auto";
-  statusPanelEl.style.bottom = `${bottom}px`;
-  statusPanelEl.style.right = "auto";
-  statusPanelEl.style.width = `${statusRect.width}px`;
-  storeCardRelativePosition(statusPanelEl);
 }
 
 const loadingOverlayEl = document.getElementById("loading-overlay");
@@ -631,6 +603,38 @@ function countVisibleElements(entryMap) {
 
 function formatCountLabel(count, singular, plural) {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function appendLegendCount(parent, count) {
+  const countEl = document.createElement("span");
+  countEl.className = "legend-count";
+  setLegendCount(countEl, count);
+  parent.appendChild(countEl);
+  return countEl;
+}
+
+function setLegendCount(countEl, count) {
+  if (countEl) {
+    countEl.textContent = `(${Number(count || 0).toLocaleString()})`;
+  }
+}
+
+function refreshProjectedLegendCounts() {
+  const countElements = [...document.querySelectorAll(".projected-legend-count")];
+  const scenarioTotals = new Map();
+  let projectedTotal = 0;
+
+  for (const countEl of countElements) {
+    const count = Number(countEl.dataset.count || 0);
+    const scenarioKey = countEl.dataset.scenarioKey;
+    scenarioTotals.set(scenarioKey, (scenarioTotals.get(scenarioKey) || 0) + count);
+    projectedTotal += count;
+  }
+
+  for (const [scenarioKey, total] of scenarioTotals) {
+    setLegendCount(document.querySelector(`[data-scenario-count="${scenarioKey}"]`), total);
+  }
+  setLegendCount(document.querySelector(".projected-total-count"), projectedTotal);
 }
 
 function appendVisibleEntryStatuses(addItem, options) {
@@ -901,6 +905,8 @@ async function syncUsReconductoringLayer(isoKey, shouldShow) {
       ...dataset.summary,
       label: dataset.label,
     });
+    const labelElement = document.querySelector(`#section-us-reconductoring [data-iso-key="${isoKey}"] .reconductoring-label-count`);
+    setLegendCount(labelElement, dataset.summary.existingSegmentCount + dataset.summary.newSegmentCount);
     setStatusById(statusId, "ok", buildReconductoringStatusText(dataset));
     renderUsReconductoringSummary(`
       <strong>${dataset.label}</strong><br />
@@ -1062,6 +1068,16 @@ function formatSubstationVoltageDisplayLabel(voltageLabel) {
   return `${voltageLabel} kV ${currentType}`;
 }
 
+function getTapVoltageBucket(voltage) {
+  if (!Number.isFinite(voltage)) {
+    return null;
+  }
+
+  return US_TAP_VOLTAGE_BUCKETS.find((bucket) => (
+    bucket.exact === voltage || (bucket.exact === undefined && voltage > bucket.min && voltage <= bucket.max)
+  )) || null;
+}
+
 function setCardVisibility(card, visible) {
   if (!card) {
     return;
@@ -1117,6 +1133,22 @@ function togglePopupCard(card, anchorElement) {
     positionPopupCardNearAnchor(card, anchorElement);
   }
 }
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  const visiblePopupCards = document.querySelectorAll(
+    ".floating-popup-card:not(.is-hidden-card)"
+  );
+  if (!visiblePopupCards.length) {
+    return;
+  }
+
+  event.preventDefault();
+  visiblePopupCards.forEach((card) => setCardVisibility(card, false));
+});
 
 function isTapRecord(record) {
   const type = String(record?.TYPE || "").trim().toUpperCase();
@@ -1848,6 +1880,7 @@ function buildUsPcaControl() {
   showCheckbox.checked = usPcaVisible;
   const showText = document.createElement("span");
   showText.textContent = "Show PCA areas";
+  const showCount = appendLegendCount(showText, 0);
   showRow.appendChild(showCheckbox);
   showRow.appendChild(showText);
   body.appendChild(showRow);
@@ -1885,11 +1918,17 @@ function buildUsPcaControl() {
         map.removeLayer(usPcaLayer);
       }
 
+      setLegendCount(showCount, usPcaFeatureCollection?.features?.length || 0);
+
       activateStatusTracking();
     };
 
     applyToggle();
   });
+
+  loadUsPcaLayer()
+    .then(() => setLegendCount(showCount, usPcaFeatureCollection?.features?.length || 0))
+    .catch((error) => console.warn("US PCA count unavailable", error));
 
 }
 
@@ -2099,6 +2138,7 @@ async function loadProjectedDataCenterLayer(scenario, weight) {
   }
 
   const layer = L.layerGroup([polygonLayer, markerLayer]);
+  layer.projectedFeatureCount = data.features?.length || 0;
 
   usProjectedDataCenterLayers.set(layerKey, layer);
   return layer;
@@ -2135,12 +2175,15 @@ function buildUsDataCenterControl() {
   actualSwatch.setAttribute("aria-hidden", "true");
   const actualText = document.createElement("span");
   actualText.textContent = "Actual data centers";
+  const actualCount = appendLegendCount(actualText, 0);
   actualRow.append(actualCheckbox, actualSwatch, actualText);
   body.appendChild(actualRow);
 
   const projectedTitle = document.createElement("div");
   projectedTitle.className = "voltage-filter-title data-center-group-title";
   projectedTitle.textContent = "Projected data centers";
+  const projectedTotalCount = appendLegendCount(projectedTitle, 0);
+  projectedTotalCount.classList.add("projected-total-count");
   body.appendChild(projectedTitle);
 
   for (const scenario of US_PROJECTED_DATA_CENTER_SCENARIOS) {
@@ -2151,6 +2194,8 @@ function buildUsDataCenterControl() {
     scenarioCheckbox.setAttribute("aria-label", `Show all ${scenario.label} projected data centers`);
     const scenarioLabel = document.createElement("span");
     scenarioLabel.textContent = scenario.label;
+    const scenarioTotalCount = appendLegendCount(scenarioLabel, 0);
+    scenarioTotalCount.dataset.scenarioCount = scenario.key;
     scenarioTitle.append(scenarioCheckbox, scenarioLabel);
     body.appendChild(scenarioTitle);
     const scenarioDataCheckboxes = [];
@@ -2184,6 +2229,9 @@ function buildUsDataCenterControl() {
       swatch.setAttribute("aria-hidden", "true");
       const text = document.createElement("span");
       text.textContent = `${weight}% market gravity`;
+      const projectedCount = appendLegendCount(text, 0);
+      projectedCount.classList.add("projected-legend-count");
+      projectedCount.dataset.scenarioKey = scenario.key;
 
       row.append(checkbox, swatch, text);
       body.appendChild(row);
@@ -2199,6 +2247,16 @@ function buildUsDataCenterControl() {
           } else if (map.hasLayer(layer)) {
             map.removeLayer(layer);
           }
+          projectedCount.dataset.count = String(layer.projectedFeatureCount || 0);
+          setLegendCount(projectedCount, layer.projectedFeatureCount);
+          const scenarioCount = [...scenarioDataCheckboxes]
+            .map((entry) => Number(entry.dataset.legendCount || 0))
+            .reduce((total, count) => total + count, 0);
+          setLegendCount(scenarioTotalCount, scenarioCount);
+          const projectedCountTotal = [...usProjectedDataCenterLayers.values()]
+            .reduce((total, entry) => total + Number(entry.projectedFeatureCount || 0), 0);
+          setLegendCount(projectedTotalCount, projectedCountTotal);
+          refreshProjectedLegendCounts();
           activateStatusTracking();
         } catch (error) {
           checkbox.checked = false;
@@ -2209,6 +2267,14 @@ function buildUsDataCenterControl() {
           updateScenarioCheckbox();
         }
       });
+
+      loadProjectedDataCenterLayer(scenario, weight)
+        .then((layer) => {
+          projectedCount.dataset.count = String(layer.projectedFeatureCount || 0);
+          setLegendCount(projectedCount, layer.projectedFeatureCount);
+          refreshProjectedLegendCounts();
+        })
+        .catch((error) => console.warn(`${scenario.label} projected count unavailable`, error));
     }
 
     updateScenarioCheckbox();
@@ -2246,11 +2312,17 @@ function buildUsDataCenterControl() {
         map.removeLayer(usDataCenterLayer);
       }
 
+      setLegendCount(actualCount, usDataCenterLayer.getLayers().length);
+
       activateStatusTracking();
     };
 
     applyToggle();
   });
+
+  loadUsDataCenterLayer()
+    .then(() => setLegendCount(actualCount, usDataCenterLayer?.getLayers().length || 0))
+    .catch((error) => console.warn("US data-center count unavailable", error));
 }
 
 function buildUsReconductoringControl() {
@@ -2298,7 +2370,7 @@ function buildUsReconductoringControl() {
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
-    checkbox.checked = false;
+    checkbox.checked = iso.enabled;
     checkbox.disabled = !iso.enabled;
 
     const marker = document.createElement("span");
@@ -2308,6 +2380,10 @@ function buildUsReconductoringControl() {
 
     const text = document.createElement("span");
     text.textContent = iso.enabled ? iso.label : `${iso.label} (coming soon)`;
+    const labelCount = appendLegendCount(text, 0);
+    text.dataset.isoKey = iso.key;
+    labelCount.classList.add("reconductoring-label-count");
+    row.dataset.isoKey = iso.key;
 
     row.appendChild(checkbox);
     row.appendChild(marker);
@@ -2352,6 +2428,17 @@ function buildUsReconductoringControl() {
   appendUsLegendCard(card);
 
   enableSectionCardDrag(card);
+
+  for (const iso of ISO_RECONDUCTORING_CONFIG.filter((entry) => entry.enabled)) {
+    ensureUsReconductoringDataset(iso.key)
+      .then((dataset) => {
+        const countEl = card.querySelector(
+          `[data-iso-key="${iso.key}"] .reconductoring-label-count`
+        );
+        setLegendCount(countEl, dataset.summary.existingSegmentCount + dataset.summary.newSegmentCount);
+      })
+      .catch((error) => console.warn(`${iso.label} reconductoring count unavailable`, error));
+  }
 }
 
 async function loadUsPcaLayer() {
@@ -2510,6 +2597,7 @@ function renderUsVoltageControls() {
 
       const text = document.createElement("span");
       text.textContent = voltageState.displayLabel;
+      appendLegendCount(text, voltageState.elementCount);
 
       checkbox.addEventListener("change", () => {
         voltageState.visible = checkbox.checked;
@@ -2620,6 +2708,7 @@ function renderUsSubstationVoltageControls() {
 
       const text = document.createElement("span");
       text.textContent = voltageState.displayLabel;
+      appendLegendCount(text, voltageState.elementCount);
 
       checkbox.addEventListener("change", () => {
         voltageState.visible = checkbox.checked;
@@ -2719,6 +2808,7 @@ function renderUsTapVoltageControls() {
 
       const text = document.createElement("span");
       text.textContent = voltageState.displayLabel;
+      appendLegendCount(text, voltageState.elementCount);
 
       checkbox.addEventListener("change", () => {
         voltageState.visible = checkbox.checked;
@@ -2764,7 +2854,6 @@ function renderUsTapVoltageControls() {
   };
 
   renderContainer(usTapVoltageContainer, "Main Voltage Levels:", "primary", false);
-  renderContainer(usTapOtherVoltageContainer, "Other Voltage Range:", "other-range", true);
 }
 
 function updateUsPowerPlantMasterCheckbox() {
@@ -2814,6 +2903,7 @@ function renderUsPowerPlantTypeControls() {
 
     const text = document.createElement("span");
     text.textContent = typeLabel;
+    appendLegendCount(text, typeState.elementCount);
 
     checkbox.addEventListener("change", () => {
       typeState.visible = checkbox.checked;
@@ -2911,8 +3001,7 @@ function buildUsTransmissionControl() {
   body.appendChild(actions);
 
   card.appendChild(body);
-  // Insert as first child of mapUiLeftEl (above substations)
-  mapUiLeftEl.insertBefore(card, mapUiLeftEl.firstChild);
+  mapUiLeftEl.appendChild(card);
   enableSectionCardDrag(card);
 
   const otherLevelsCard = document.createElement("section");
@@ -3039,16 +3128,6 @@ function buildUsSubstationControl() {
   tapVoltageContainer.className = "voltage-filter-container";
   tapBody.appendChild(tapVoltageContainer);
 
-  const tapActions = document.createElement("div");
-  tapActions.className = "section-inline-actions";
-
-  const tapOtherRangeButton = document.createElement("button");
-  tapOtherRangeButton.type = "button";
-  tapOtherRangeButton.className = "section-toggle-btn";
-  tapOtherRangeButton.textContent = "Other Voltage Range";
-  tapActions.appendChild(tapOtherRangeButton);
-  tapBody.appendChild(tapActions);
-
   tapCard.appendChild(tapBody);
   appendUsLegendCard(tapCard);
   enableSectionCardDrag(tapCard);
@@ -3074,41 +3153,15 @@ function buildUsSubstationControl() {
   mapShellEl?.appendChild(otherRangeCard);
   enableSectionCardDrag(otherRangeCard);
 
-  const tapOtherRangeCard = document.createElement("section");
-  tapOtherRangeCard.id = "section-us-taps-other-range";
-  tapOtherRangeCard.className = "section-card floating-popup-card is-hidden-card";
-
-  const tapOtherHeader = document.createElement("div");
-  tapOtherHeader.className = "section-card-header";
-  const tapOtherTitle = document.createElement("h2");
-  tapOtherTitle.className = "section-card-title";
-  tapOtherTitle.textContent = "US TAPs - Other Voltage Range";
-  tapOtherHeader.appendChild(tapOtherTitle);
-  tapOtherRangeCard.appendChild(tapOtherHeader);
-
-  const tapOtherBody = document.createElement("div");
-  tapOtherBody.className = "section-card-body";
-  const tapOtherContainer = document.createElement("div");
-  tapOtherContainer.className = "voltage-filter-container is-multi-column";
-  tapOtherBody.appendChild(tapOtherContainer);
-  tapOtherRangeCard.appendChild(tapOtherBody);
-  mapShellEl?.appendChild(tapOtherRangeCard);
-  enableSectionCardDrag(tapOtherRangeCard);
-
   usSubstationVoltageContainer = voltageContainer;
   usSubstationOtherVoltageContainer = otherContainer;
   usSubstationOtherVoltageCard = otherRangeCard;
   usTapVoltageContainer = tapVoltageContainer;
-  usTapOtherVoltageContainer = tapOtherContainer;
-  usTapOtherVoltageCard = tapOtherRangeCard;
 
   otherRangeButton.addEventListener("click", () => {
     togglePopupCard(usSubstationOtherVoltageCard, otherRangeButton);
   });
 
-  tapOtherRangeButton.addEventListener("click", () => {
-    togglePopupCard(usTapOtherVoltageCard, tapOtherRangeButton);
-  });
 }
 
 function buildUsPowerPlantControl() {
@@ -3225,7 +3278,7 @@ async function loadUsTransmissionLayer() {
     const color = getVoltageColorByIndex(index);
     const defaultVoltageMatch = entry.displayLabel.match(/^-?\d+(?:\.\d+)?/);
     const defaultVoltage = defaultVoltageMatch ? defaultVoltageMatch[0] : null;
-    const visibleByDefault = entry.group === "primary" && US_DEFAULT_VISIBLE_TRANSMISSION_LEVELS.has(defaultVoltage);
+    const visibleByDefault = false;
     const voltageLayer = L.geoJSON(entry.features, {
       style: {
         color,
@@ -3360,22 +3413,17 @@ async function loadUsPowerPlantLayer() {
 
 async function initializeUsMap() {
   initializeThemeToggle();
-  initializeStatusPanelToggle();
   initializeCountrySwitcherNavigation();
   initializeUsLegendDrawer();
+  initializeUsLayerDrawer();
   buildUsSubstationControl();
   buildUsTransmissionControl();
   buildUsPcaControl();
   buildUsReconductoringControl();
   buildUsDataCenterControl();
   buildUsPowerPlantControl();
-  requestAnimationFrame(() => {
-    positionUsStatusPanelNearSubstations();
-  });
   enableCardDrag(mapTitleCardEl);
-  enableCardDrag(statusPanelEl);
   window.addEventListener("resize", refreshResponsiveCardLayout);
-  clearStatusWindow();
 
   setLoadingOverlayVisible(true);
 
@@ -3383,15 +3431,15 @@ async function initializeUsMap() {
     await Promise.all([
       loadUsTransmissionLayer(),
       loadUsSubstationLayer(),
+      ...ISO_RECONDUCTORING_CONFIG
+        .filter((entry) => entry.enabled)
+        .map((entry) => syncUsReconductoringLayer(entry.key, true)),
     ]);
   } catch (error) {
     setStatus("us-map", "error", `US data load failed: ${error?.message || "unknown error"}`);
     console.error("US data load failed", error);
   } finally {
     setLoadingOverlayVisible(false);
-    if (!usStatusTrackingActive) {
-      clearStatusWindow();
-    }
   }
 
   // Load heavy, non-default content after first paint.

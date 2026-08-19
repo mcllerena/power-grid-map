@@ -19,7 +19,7 @@
     />
     <link rel="stylesheet" href="./css/styles.css" />
   </head>
-  <body>
+  <body class="us-map-page">
     <div id="app-shell">
       <main id="map-shell">
         <div
@@ -48,11 +48,6 @@
           <span class="theme-icon theme-icon-moon" aria-hidden="true">☾</span>
         </button>
 
-        <nav id="country-switcher" class="country-switcher" aria-label="Select map country">
-          <a class="country-switcher-btn" href="./">Brazil</a>
-          <a class="country-switcher-btn is-active" href="./us.html" aria-current="page">US</a>
-        </nav>
-
         <section id="map-title-card" class="map-ui-card">
           <h1>US Power Grid</h1>
           <p class="subtitle">Interactive map for US transmission lines</p>
@@ -71,12 +66,16 @@
           </p>
         </section>
 
-        <aside id="status-panel" class="map-ui-card" aria-live="polite">
-          <h2>Status Window</h2>
-          <ul id="status-list"></ul>
+        <button id="map-ui-left-toggle" class="map-ui-left-toggle" type="button" aria-controls="map-ui-left" aria-expanded="false" title="Show grid layers">
+          <span aria-hidden="true">&#8250;</span>
+          <span class="sr-only">Show grid layers</span>
+        </button>
+        <aside id="map-ui-left" class="map-ui-column" aria-label="Grid layer controls" aria-hidden="true">
+          <div id="map-ui-left-header" class="map-ui-left-header">
+            <h2>Grid layers</h2>
+            <button id="map-ui-left-close" class="map-ui-left-close" type="button" aria-label="Hide grid layers" title="Hide grid layers">&times;</button>
+          </div>
         </aside>
-
-        <aside id="map-ui-left" class="map-ui-column" aria-label="Left layer controls"></aside>
         <button id="map-ui-right-toggle" class="map-ui-right-toggle" type="button" aria-controls="map-ui-right" aria-expanded="false" title="Show map legends">
           <span aria-hidden="true">&#8249;</span>
           <span class="sr-only">Show map legends</span>
