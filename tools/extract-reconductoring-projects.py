@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 ISO_KEY_BY_SHEET = {
     "caiso": "caiso",
     "iso-ne": "iso-ne",

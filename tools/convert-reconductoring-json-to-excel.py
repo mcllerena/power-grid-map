@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Convert US reconductoring projects JSON into an Excel workbook."""
 
 from __future__ import annotations
