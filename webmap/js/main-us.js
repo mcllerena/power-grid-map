@@ -431,6 +431,9 @@ const usReconductoringLayers = new Map();
 const usReconductoringCheckboxes = new Map();
 const usReconductoringSummaries = new Map();
 const usActiveReconductoringIsos = new Set();
+const usGetsLayers = new Map();
+const usGetsCheckboxes = new Map();
+const usActiveGetsIsos = new Set();
 let usStatusTrackingActive = false;
 
 const mapShellEl = document.getElementById("map-shell");
@@ -863,6 +866,61 @@ function buildUsReconductoringLeafletLayer(dataset) {
     layerGroup.addLayer(newLayer);
   }
 
+  if (dataset.newPointFeatures?.length) {
+    const newPointLayer = L.geoJSON(
+      {
+        type: "FeatureCollection",
+        features: dataset.newPointFeatures,
+      },
+      {
+        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+          radius: 4,
+          color: US_RECONDUCTORING_LINE_COLOR,
+          weight: 1.5,
+          fillColor: "#fecaca",
+          fillOpacity: 0.95,
+        }),
+        onEachFeature: (feature, featureLayer) => bindPopup(featureLayer, feature),
+      }
+    );
+    layerGroup.addLayer(newPointLayer);
+  }
+
+  return layerGroup;
+}
+
+function buildUsGetsLeafletLayer(dataset) {
+  const layerGroup = L.layerGroup();
+  const bindGetsPopup = (feature, featureLayer) => {
+    bindHoverPersistentPopup(featureLayer, buildPopupHTML(feature));
+  };
+
+  if (dataset.lineFeatures?.length) {
+    layerGroup.addLayer(L.geoJSON(
+      { type: "FeatureCollection", features: dataset.lineFeatures },
+      {
+        style: { color: "#2563eb", weight: 3.2, opacity: 0.95, dashArray: "8 5" },
+        onEachFeature: bindGetsPopup,
+      }
+    ));
+  }
+
+  if (dataset.nodeFeatures?.length) {
+    layerGroup.addLayer(L.geoJSON(
+      { type: "FeatureCollection", features: dataset.nodeFeatures },
+      {
+        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+          radius: 5,
+          color: "#1d4ed8",
+          weight: 1.5,
+          fillColor: "#60a5fa",
+          fillOpacity: 0.95,
+        }),
+        onEachFeature: bindGetsPopup,
+      }
+    ));
+  }
+
   return layerGroup;
 }
 
@@ -884,6 +942,41 @@ async function ensureUsReconductoringLayerPrepared(isoKey) {
   const layer = buildUsReconductoringLeafletLayer(dataset);
   usReconductoringLayers.set(isoKey, layer);
   return layer;
+}
+
+async function syncUsGetsLayer(isoKey, shouldShow) {
+  const checkbox = usGetsCheckboxes.get(isoKey);
+  if (!shouldShow) {
+    const layer = usGetsLayers.get(isoKey);
+    if (layer && map.hasLayer(layer)) {
+      map.removeLayer(layer);
+    }
+    usGetsLayers.delete(isoKey);
+    usActiveGetsIsos.delete(isoKey);
+    activateStatusTracking();
+    return;
+  }
+
+  try {
+    if (checkbox) checkbox.disabled = true;
+    const url = makeAbsoluteUrl(`./data/gets/${encodeURIComponent(isoKey)}.json`);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+    const dataset = await response.json();
+    const layer = buildUsGetsLeafletLayer(dataset);
+    layer.addTo(map);
+    usGetsLayers.set(isoKey, layer);
+    usActiveGetsIsos.add(isoKey);
+    activateStatusTracking();
+  } catch (error) {
+    if (checkbox) checkbox.checked = false;
+    usActiveGetsIsos.delete(isoKey);
+    setStatusById(`us-gets-${isoKey}`, "warn", `${isoKey.toUpperCase()} GETS unavailable: ${error?.message || "unknown error"}`);
+  } finally {
+    if (checkbox && ISO_RECONDUCTORING_CONFIG.find((entry) => entry.key === isoKey)?.enabled) {
+      checkbox.disabled = false;
+    }
+  }
 }
 
 async function syncUsReconductoringLayer(isoKey, shouldShow) {
@@ -1297,12 +1390,7 @@ function enableCardDrag(card, handle = card) {
 }
 
 function enableSectionCardDrag(card) {
-  if (!card) {
-    return;
-  }
-
-  const header = card.querySelector(".section-card-header");
-  enableCardDrag(card, header || card);
+  void card;
 }
 
 function makeAbsoluteUrl(path) {
@@ -2410,13 +2498,26 @@ function buildUsReconductoringControl() {
 
   optionsTitle.appendChild(reconductoringSelectAll);
   optionsTitle.appendChild(optionsTitleSpan);
-  optionsWrap.appendChild(optionsTitle);
+  const optionsHeader = document.createElement("div");
+  optionsHeader.className = "reconductoring-grid reconductoring-grid-header";
+  optionsTitle.className = "reconductoring-grid-heading";
+  optionsHeader.appendChild(optionsTitle);
+  const reconductoringHeading = document.createElement("span");
+  reconductoringHeading.textContent = "Reconduct.";
+  const getsHeading = document.createElement("span");
+  getsHeading.textContent = "GETS";
+  optionsHeader.appendChild(reconductoringHeading);
+  optionsHeader.appendChild(getsHeading);
+  optionsWrap.appendChild(optionsHeader);
 
   const enabledCheckboxes = [];
 
   for (const iso of ISO_RECONDUCTORING_CONFIG) {
-    const row = document.createElement("label");
-    row.className = "voltage-filter-row";
+    const row = document.createElement("div");
+    row.className = "reconductoring-grid reconductoring-grid-row";
+
+    const regionCell = document.createElement("label");
+    regionCell.className = "reconductoring-region-cell";
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -2435,11 +2536,28 @@ function buildUsReconductoringControl() {
     labelCount.classList.add("reconductoring-label-count");
     row.dataset.isoKey = iso.key;
 
-    row.appendChild(checkbox);
-    row.appendChild(marker);
-    row.appendChild(text);
+    regionCell.appendChild(marker);
+    regionCell.appendChild(text);
+    row.appendChild(regionCell);
+
+    const reconductoringCell = document.createElement("label");
+    reconductoringCell.className = "reconductoring-check-cell";
+    reconductoringCell.appendChild(checkbox);
+    row.appendChild(reconductoringCell);
+
+    const getsCell = document.createElement("label");
+    getsCell.className = "reconductoring-check-cell";
+    const getsCheckbox = document.createElement("input");
+    getsCheckbox.type = "checkbox";
+    getsCheckbox.checked = false;
+    getsCheckbox.disabled = iso.key !== "caiso";
+    getsCheckbox.title = iso.key === "caiso" ? "Show GETS projects" : `${iso.label} GETS is not available`;
+    getsCheckbox.addEventListener("change", () => syncUsGetsLayer(iso.key, getsCheckbox.checked));
+    getsCell.appendChild(getsCheckbox);
+    row.appendChild(getsCell);
     optionsWrap.appendChild(row);
     usReconductoringCheckboxes.set(iso.key, checkbox);
+    usGetsCheckboxes.set(iso.key, getsCheckbox);
 
     if (iso.enabled) {
       checkbox.addEventListener("change", () => {

@@ -9,6 +9,7 @@ const ROOT = process.cwd();
 const US_DATA_DIR = path.join(ROOT, "geoinfo", "us-data");
 const OUTPUT_DIR = path.join(ROOT, "webmap", "data", "reconductoring-us");
 const RECONDUCTORING_PROJECTS_JSON = path.join(ROOT, "reference", "us_reconductoring_projects.json");
+const SUBSTATIONS_CSV = path.join(US_DATA_DIR, "Substations.csv");
 
 function parseCsvLine(line) {
   const values = [];
@@ -177,6 +178,22 @@ function pointInGeometry(point, geometry) {
   return false;
 }
 
+function geometryPoints(geometry) {
+  if (!geometry?.coordinates) return [];
+  if (geometry.type === "LineString") return geometry.coordinates;
+  if (geometry.type === "MultiLineString") return geometry.coordinates.flat();
+  return [];
+}
+
+function pointInsideRegion(point, regionIndex) {
+  return Boolean(point && regionIndex?.geometries?.some((entry) => pointInGeometry(point, entry.geometry)));
+}
+
+function featureInsideRegion(feature, regionIndex) {
+  const points = geometryPoints(feature?.geometry);
+  return points.length > 0 && points.every((point) => pointInsideRegion(point, regionIndex));
+}
+
 function orientation(a, b, c) {
   return (b[1] - a[1]) * (c[0] - b[0]) - (b[0] - a[0]) * (c[1] - b[1]);
 }
@@ -267,6 +284,11 @@ function normalizeName(value) {
   return String(value || "").trim().toUpperCase();
 }
 
+function parseCoordinateOverride(value) {
+  const parts = String(value || "").split(",").map((part) => Number(part.trim()));
+  return parts.length === 2 && parts.every((part) => Number.isFinite(part)) ? parts : null;
+}
+
 function normalizeContainsValue(value) {
   return String(value || "").trim().toUpperCase();
 }
@@ -352,12 +374,87 @@ function findConnectedSubstations(source, sub1, sub2) {
   return null;
 }
 
-function processSubstationPair(source, sub1, sub2, newLineFeatures, isoLabel) {
-  const lineIds = findConnectedSubstations(source, sub1, sub2);
-  if (lineIds) return lineIds;
-  const coord1 = source.substationCoordinates.get(normalizeName(sub1));
-  const coord2 = source.substationCoordinates.get(normalizeName(sub2));
-  if (!coord1 || !coord2) return new Set();
+function processSubstationPair(source, sub1, sub2, newLineFeatures, newPointFeatures, isoLabel, options = {}) {
+  const hasCoordinateOverrides = Boolean(
+    options.coordinateOverrides?.[normalizeName(sub1)] && options.coordinateOverrides?.[normalizeName(sub2)]
+  );
+  const getCoordinate = (name) => {
+    const normalizedName = normalizeName(name);
+    const override = options.coordinateOverrides?.[normalizedName];
+    const regionalCoordinate = source.substationCoordinates.get(normalizedName);
+    if (override && pointInsideRegion(override, options.regionIndex)) return override;
+    if (regionalCoordinate && pointInsideRegion(regionalCoordinate, options.regionIndex)) return regionalCoordinate;
+    const nationalCoordinate = options.fallbackCoordinates?.get(normalizedName);
+    return nationalCoordinate && pointInsideRegion(nationalCoordinate, options.regionIndex)
+      ? nationalCoordinate
+      : null;
+  };
+  const coord1 = getCoordinate(sub1);
+  const coord2 = getCoordinate(sub2);
+  const coordinatesInsideRegion = coord1 && coord2 && pointInsideRegion(coord1, options.regionIndex) && pointInsideRegion(coord2, options.regionIndex);
+  const lineIds = options.pointOnly || hasCoordinateOverrides || !coordinatesInsideRegion
+    ? null
+    : findConnectedSubstations(source, sub1, sub2);
+  if (lineIds && (!options.regionIndex || [...lineIds].every((id) => featureInsideRegion(
+    source.features.find((feature) => feature.properties.__featureIndex === id),
+    options.regionIndex
+  )))) {
+    return lineIds;
+  }
+  if (options.pointOnly) {
+    const configuredTerminals = String(options.matchedTerminals || "")
+      .split(",")
+      .map((name) => normalizeName(name))
+      .filter(Boolean);
+    const foundTerminals = [
+      [sub1, coord1],
+      [sub2, coord2],
+    ].filter(([name, coordinate]) => coordinate && (!configuredTerminals.length || configuredTerminals.includes(normalizeName(name))));
+    const terminalNames = foundTerminals.map(([name]) => name).join(", ");
+    const message = foundTerminals.length
+      ? `Only ${foundTerminals.length} of 2 terminals found in the database: ${terminalNames}.`
+      : "Neither terminal was found in the database.";
+    for (const [name, coordinate] of foundTerminals) {
+      newPointFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: coordinate },
+        properties: {
+          project_type: "new-reconductoring",
+          iso_region: isoLabel,
+          substation_pair: `${sub1} -> ${sub2}`,
+          SUB_1: sub1,
+          SUB_2: sub2,
+          endpoint_name: name,
+          endpoint_match_message: message,
+        },
+      });
+    }
+    return new Set();
+  }
+  if (!coord1 || !coord2 || !coordinatesInsideRegion || !options.allowDirectFallback) {
+    const foundTerminals = [[sub1, coord1], [sub2, coord2]].filter(([, coordinate]) => pointInsideRegion(coordinate, options.regionIndex));
+    const message = !options.allowDirectFallback
+      ? `No in-region connected transmission path found; terminals shown as points: ${foundTerminals.map(([name]) => name).join(", ") || "none"}.`
+      : foundTerminals.length
+        ? `Only ${foundTerminals.length} of 2 terminals found inside the ${isoLabel} region: ${foundTerminals.map(([name]) => name).join(", ")}.`
+        : `Neither terminal was found inside the ${isoLabel} region.`;
+    for (const [name, coordinate] of foundTerminals) {
+      newPointFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: coordinate },
+        properties: {
+          project_type: "new-reconductoring",
+          iso_region: isoLabel,
+          substation_pair: `${sub1} -> ${sub2}`,
+          SUB_1: sub1,
+          SUB_2: sub2,
+          endpoint_name: name,
+          endpoint_match_message: message,
+        },
+      });
+    }
+    return new Set();
+  }
   newLineFeatures.push({
     type: "Feature",
     geometry: { type: "LineString", coordinates: [coord1, coord2] },
@@ -383,6 +480,11 @@ function featureMatchesDirectMatcher(feature, matcher) {
 
 function buildSubstationPairLabel(sub1, sub2) {
   return `${normalizeName(sub1)}||${normalizeName(sub2)}`;
+}
+
+function isFalseWorkbookValue(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "false" || normalized === "0" || normalized === "0.0" || normalized === "no";
 }
 
 function deriveSubstationPairsFromMatchers(features, matchers) {
@@ -722,6 +824,27 @@ async function loadHierarchyRows() {
     .filter((row) => row.r && String(row.country || "").trim().toLowerCase() === "usa");
 }
 
+async function loadSubstationCoordinates() {
+  const csvText = await fs.readFile(SUBSTATIONS_CSV, "utf8");
+  const candidates = new Map();
+  for (const row of parseCsvText(csvText)) {
+    const name = normalizeName(row.NAME);
+    const state = String(row.STATE || "").trim().toUpperCase();
+    const latitude = Number(row.LATITUDE);
+    const longitude = Number(row.LONGITUDE);
+    const voltage = Number(row.MAX_VOLT);
+    if (!name || state !== "CA" || !Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    if (!candidates.has(name)) candidates.set(name, []);
+    candidates.get(name).push({ coordinate: [longitude, latitude], voltage });
+  }
+  return new Map([...candidates.entries()].map(([name, entries]) => {
+    const preferred = entries
+      .filter((entry) => Number.isFinite(entry.voltage))
+      .sort((a, b) => b.voltage - a.voltage)[0] || entries[0];
+    return [name, preferred.coordinate];
+  }));
+}
+
 function buildHierarchyRegionFeatures(pcaCollection, hierarchyRows, column) {
   const hierarchyByZone = new Map(hierarchyRows.map((row) => [row.r, row]));
   const featuresByKey = new Map();
@@ -743,14 +866,20 @@ function buildHierarchyRegionFeatures(pcaCollection, hierarchyRows, column) {
 
 async function generate() {
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
-  const [transmissionCollection, pcaCollection, hierarchyRows] = await Promise.all([
+  const [transmissionCollection, pcaCollection, hierarchyRows, substationCoordinates] = await Promise.all([
     loadTransmissionCollection(),
     loadPcaCollection(),
     loadHierarchyRows(),
+    loadSubstationCoordinates(),
   ]);
   const workbookProjectsByIso = await loadWorkbookProjectsByIso();
 
   const transmissionIndex = buildTransmissionIndex(transmissionCollection.features);
+  for (const [name, coordinate] of substationCoordinates) {
+    if (!transmissionIndex.substationCoordinates.has(name)) {
+      transmissionIndex.substationCoordinates.set(name, coordinate);
+    }
+  }
   const stateMap = buildHierarchyRegionFeatures(pcaCollection, hierarchyRows, "st");
   const transgrpMap = buildHierarchyRegionFeatures(pcaCollection, hierarchyRows, "transgrp");
 
@@ -780,6 +909,7 @@ async function generate() {
     const targetPairs = dedupeSubstationPairs([...basePairs, ...derivedPairs]);
     const projectsByPair = buildProjectsByPair(workbookRows);
     const newLineFeatures = [];
+    const newPointFeatures = [];
     const existingLineIds = new Set();
     const lineProjectsById = new Map();
     const lineIntendedPairById = new Map(); // featureIndex -> [sub1, sub2]
@@ -797,7 +927,32 @@ async function generate() {
       // Resolve workbook pairs through the transmission graph first. This
       // follows the full shortest path, including intermediary substations,
       // instead of treating SUB_1/SUB_2 as a required direct line match.
-      const ids = processSubstationPair(regionalIndex, sub1, sub2, newLineFeatures, isoConfig.label);
+      const pairIndex = regionalIndex;
+      const pointOnly = projectRows.some((row) => isFalseWorkbookValue(row?.["Found On DB"]));
+      const matchedTerminals = projectRows.find((row) => String(row?.["Matched Terminals"] || "").trim())?.["Matched Terminals"];
+      const coordinateOverrides = {};
+      for (const row of projectRows) {
+        const override1 = parseCoordinateOverride(row?.["Map SUB_1 Coordinates"]);
+        const override2 = parseCoordinateOverride(row?.["Map SUB_2 Coordinates"]);
+        if (override1) coordinateOverrides[normalizeName(sub1)] = override1;
+        if (override2) coordinateOverrides[normalizeName(sub2)] = override2;
+      }
+      const ids = processSubstationPair(
+        pairIndex,
+        sub1,
+        sub2,
+        newLineFeatures,
+        newPointFeatures,
+        isoConfig.label,
+        {
+          pointOnly,
+          matchedTerminals,
+          coordinateOverrides,
+          fallbackCoordinates: transmissionIndex.substationCoordinates,
+          regionIndex,
+          allowDirectFallback: projectRows.length === 0,
+        }
+      );
       if (ids.size) {
         pathMatchedPairKeys.add(pairKey);
       } else if (newLineFeatures.length > beforeNewLineCount) {
@@ -820,6 +975,13 @@ async function generate() {
       if (newLineFeatures.length > beforeNewLineCount && projectRows.length) {
         const newest = newLineFeatures[newLineFeatures.length - 1];
         newest.properties = applyWorkbookProjectMetadata(newest.properties || {}, projectRows);
+      }
+      if (projectRows.length) {
+        for (const feature of newPointFeatures) {
+          if (feature.properties.substation_pair === `${sub1} -> ${sub2}` && !feature.properties.project_records) {
+            feature.properties = applyWorkbookProjectMetadata(feature.properties, projectRows);
+          }
+        }
       }
     }
     let existingFeatures = regionalIndex.features
@@ -868,6 +1030,7 @@ async function generate() {
       regionFeatures,
       existingFeatures,
       newLineFeatures,
+      newPointFeatures,
       summary: {
         regionSelectionMode,
         transmissionRegionColumn: regionColumn,
@@ -882,6 +1045,7 @@ async function generate() {
         candidateLineCount: regionalIndex.features.length,
         existingSegmentCount: existingFeatures.length,
         newSegmentCount: newLineFeatures.length,
+        newPointCount: newPointFeatures.length,
         substationPairCount: targetPairs.length,
       },
     };

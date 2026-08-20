@@ -1083,12 +1083,16 @@ function buildPopupProperties(feature) {
   if (primaryProject) {
     rows.push(["Utility", primaryProject.Utility || "-"]);
     rows.push(["Project type", primaryProject["Project Type"] || "-"]);
+    rows.push(["Conductor", primaryProject["Conductor Type"] || primaryProject.Conductor || "-"]);
     rows.push(["Distance (mi)", primaryProject["Distance (mi)"] || "-"]);
     rows.push(["Rating", primaryProject.Rating || "-"]);
     rows.push(["Cost ($ M)", primaryProject["Cost ($ M)"] || "-"]);
     rows.push(["Status", primaryProject.Status || "-"]);
     rows.push(["Planned year", primaryProject["Planned Year"] || "-"]);
     rows.push(["Description", primaryProject.Description || "-"]);
+  }
+  if (props.endpoint_match_message || primaryProject?.["Endpoint Match Info"]) {
+    rows.push(["Endpoint match", props.endpoint_match_message || primaryProject["Endpoint Match Info"]]);
   }
 
   return rows;
