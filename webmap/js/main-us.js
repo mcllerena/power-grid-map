@@ -2538,7 +2538,7 @@ function buildUsReconductoringControl() {
 
   const title = document.createElement("h2");
   title.className = "section-card-title";
-  title.textContent = "Reconductoring projects";
+  title.textContent = "Reconductoring & GETS projects";
   header.appendChild(title);
   card.appendChild(header);
 
@@ -2633,7 +2633,7 @@ function buildUsReconductoringControl() {
     getsCell.className = "reconductoring-check-cell";
     const getsCheckbox = document.createElement("input");
     getsCheckbox.type = "checkbox";
-    const getsAvailable = iso.key === "caiso" || iso.key === "spp";
+    const getsAvailable = iso.key === "caiso" || iso.key === "miso" || iso.key === "spp";
     getsCheckbox.checked = getsAvailable;
     getsCheckbox.disabled = !getsAvailable;
     getsCheckbox.title = getsAvailable ? "Show GETS projects" : `${iso.label} GETS is not available`;
@@ -3661,7 +3661,7 @@ async function initializeUsMap() {
         .filter((entry) => entry.enabled)
         .map((entry) => syncUsReconductoringLayer(entry.key, true)),
       ...ISO_RECONDUCTORING_CONFIG
-        .filter((entry) => entry.key === "caiso" || entry.key === "spp")
+        .filter((entry) => entry.key === "caiso" || entry.key === "miso" || entry.key === "spp")
         .map((entry) => syncUsGetsLayer(entry.key, true)),
       ...ISO_RECONDUCTORING_CONFIG
         .filter((entry) => entry.enabled)

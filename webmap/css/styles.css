@@ -798,7 +798,7 @@ body.us-map-page #map-ui-left.is-open {
 
 .reconductoring-grid-heading,
 .reconductoring-region-cell {
-  color: #ffffff;
+  color: var(--ui-text);
 }
 
 .reconductoring-region-cell .legend-count {
