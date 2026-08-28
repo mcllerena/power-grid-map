@@ -81,6 +81,10 @@ body[data-theme="dark"] {
   --card-hover-text: #ffffff;
 }
 
+body[data-theme="dark"] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.72) saturate(0.65);
+}
+
 #theme-toggle {
   position: absolute;
   top: 14px;

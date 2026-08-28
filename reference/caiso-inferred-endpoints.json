@@ -1,0 +1,106 @@
+{
+  "cooleylandingpaloaltoandravenswoodcooleylanding115kvlinesrerate": {
+    "SUB_1": "RAVENSWOOD",
+    "SUB_2": "PALO ALTO"
+  },
+  "midwaykernppnos13and4230kvlinescapacityincreasekernpp230kvareareinforcementproject": {
+    "SUB_1": "MIDWAY",
+    "SUB_2": "KERN"
+  },
+  "northofmesaupgradeformerlymidwayandrew230kvproject": {
+    "SUB_1": "MIDWAY",
+    "SUB_2": "MESA"
+  },
+  "tulucaynapa260kvlinecapacityincrease": {
+    "SUB_1": "TULUCAY",
+    "SUB_2": "NAPA"
+  },
+  "vacadixonareareinforcementreplacebank5": {
+    "SUB_1": "VACA-DIXON",
+    "SUB_2": "DIXON"
+  },
+  "eastmarysville11560kvproject": {
+    "SUB_1": "EAST MARYSVILLE",
+    "SUB_2": "MARYSVILLE"
+  },
+  "lonetreecayetanonewarkcorridorseriescompensation": {
+    "SUB_1": "CAYETANO",
+    "SUB_2": "LONE TREE"
+  },
+  "martinmillbrae60kvareareinforcement": {
+    "SUB_1": "MILLBRAE",
+    "SUB_2": "MARTIN"
+  },
+  "metcalfpiercyswiftandnewarkdixonlanding115kvupgrade": {
+    "SUB_1": "NEWARK",
+    "SUB_2": "PIERCY"
+  },
+  "midwaykernpp2230kvline": {
+    "SUB_1": "MIDWAY",
+    "SUB_2": "KERN"
+  },
+  "midwaykernppnos13and4230kvlinescapacityincreasemidway230kvbussectiondupgradeproject": {
+    "SUB_1": "MIDWAY",
+    "SUB_2": "KERN"
+  },
+  "moragacastrovalley230kvlinecapacityincreaseproject": {
+    "SUB_1": "CASTRO VALLEY",
+    "SUB_2": "MORAGA"
+  },
+  "newhumboldt500kvsubstationwith500kvlinetocollinsvillehvdcoperatedasac": {
+    "SUB_1": "COLLINSVILLE",
+    "SUB_2": "HUMBOLDT"
+  },
+  "newarkmilpitas1115kvlinelimitingfacilityupgrade": {
+    "SUB_1": "MILPITAS",
+    "SUB_2": "NEWARK"
+  },
+  "redbluffcoleman60kvreinforcement": {
+    "SUB_1": "RED BLUFF",
+    "SUB_2": "COLEMAN"
+  },
+  "vacadixonlakeville230kvcorridorseriescompensation": {
+    "SUB_1": "LAKEVILLE",
+    "SUB_2": "VACA-DIXON"
+  },
+  "antelopewhirlwindlineupgrade": {
+    "SUB_1": "WHIRLWIND",
+    "SUB_2": "ANTELOPE"
+  },
+  "coloradoriverredbluff500kv1lineupgrade": {
+    "SUB_1": "COLORADO RIVER",
+    "SUB_2": "RED BLUFF"
+  },
+  "deversredbluff500kv1and2lineupgrade": {
+    "SUB_1": "RED BLUFF",
+    "SUB_2": "DEVERS"
+  },
+  "lagunabellmesano1230kvlineratingincreaseproject": {
+    "SUB_1": "LAGUNA",
+    "SUB_2": "BELL"
+  },
+  "lugovictorville500kvupgradesceportion": {
+    "SUB_1": "VICTORVILLE",
+    "SUB_2": "LUGO"
+  },
+  "lugovictorkramerupgrade33rebuildbuildkramervictor115kvlinesto230kvandlooptheoldsegmentofkramervictor115kvintoroadway": {
+    "SUB_1": "KRAMER",
+    "SUB_2": "LUGO"
+  },
+  "serranodelamomesa500kvtransmissionreinforcement": {
+    "SUB_1": "SERRANO",
+    "SUB_2": "MESA"
+  },
+  "tl674aloopindelmarnorthcitywestremovaloftl666ddelmardelmartap": {
+    "SUB_1": "NORTH CITY WEST",
+    "SUB_2": "NORTH CITY"
+  },
+  "miguelsycamorecanyontl23021230kvlineloopintosuncrest": {
+    "SUB_1": "SYCAMORE CANYON",
+    "SUB_2": "SYCAMORE"
+  },
+  "upgradetl13820sycamorechicarita138kv": {
+    "SUB_1": "CHICARITA",
+    "SUB_2": "SYCAMORE"
+  }
+}
