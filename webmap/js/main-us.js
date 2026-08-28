@@ -387,17 +387,13 @@ function addRecenterControlButton() {
 
 addRecenterControlButton();
 
-const lightTileLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: "abcd",
+const lightTileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   maxZoom: 20,
 });
 
-const darkTileLayer = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  subdomains: "abcd",
+const darkTileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   maxZoom: 20,
 });
 
@@ -431,6 +427,12 @@ const usReconductoringLayers = new Map();
 const usReconductoringCheckboxes = new Map();
 const usReconductoringSummaries = new Map();
 const usActiveReconductoringIsos = new Set();
+const usRegionLayers = new Map();
+const usRegionCheckboxes = new Map();
+const usGetsLayers = new Map();
+const usGetsCheckboxes = new Map();
+const usActiveGetsIsos = new Set();
+const usIsoProjectCounts = new Map();
 let usStatusTrackingActive = false;
 
 const mapShellEl = document.getElementById("map-shell");
@@ -672,6 +674,16 @@ function setLegendCount(countEl, count) {
   }
 }
 
+function updateUsIsoProjectCount(isoKey, layerType, count) {
+  const counts = usIsoProjectCounts.get(isoKey) || { reconductoring: 0, gets: 0 };
+  counts[layerType] = Number(count || 0);
+  usIsoProjectCounts.set(isoKey, counts);
+  const countElement = document.querySelector(
+    `#section-us-reconductoring [data-iso-key="${isoKey}"] .reconductoring-label-count`
+  );
+  setLegendCount(countElement, counts.reconductoring + counts.gets);
+}
+
 function refreshProjectedLegendCounts() {
   const countElements = [...document.querySelectorAll(".projected-legend-count")];
   const scenarioTotals = new Map();
@@ -808,25 +820,6 @@ function buildUsReconductoringLeafletLayer(dataset) {
     bindHoverPersistentPopup(featureLayer, buildReconductoringPopupHtml(feature));
   };
 
-  if (dataset.regionFeatures?.length) {
-    const regionLayer = L.geoJSON(
-      {
-        type: "FeatureCollection",
-        features: dataset.regionFeatures,
-      },
-      {
-        style: {
-          color: dataset.regionStyle?.color || "#9a6700",
-          weight: 1.1,
-          fillColor: dataset.regionStyle?.fillColor || "#fbbf24",
-          fillOpacity: 0.14,
-          dashArray: "6 4",
-        },
-      }
-    );
-    layerGroup.addLayer(regionLayer);
-  }
-
   if (dataset.existingFeatures?.length) {
     const existingLayer = L.geoJSON(
       {
@@ -863,6 +856,83 @@ function buildUsReconductoringLeafletLayer(dataset) {
     layerGroup.addLayer(newLayer);
   }
 
+  if (dataset.newPointFeatures?.length) {
+    const newPointLayer = L.geoJSON(
+      {
+        type: "FeatureCollection",
+        features: dataset.newPointFeatures,
+      },
+      {
+        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+          radius: 4,
+          color: US_RECONDUCTORING_LINE_COLOR,
+          weight: 1.5,
+          fillColor: "#fecaca",
+          fillOpacity: 0.95,
+        }),
+        onEachFeature: (feature, featureLayer) => bindPopup(featureLayer, feature),
+      }
+    );
+    layerGroup.addLayer(newPointLayer);
+  }
+
+  return layerGroup;
+}
+
+function buildUsRegionLeafletLayer(dataset) {
+  if (!dataset.regionFeatures?.length) {
+    return L.layerGroup();
+  }
+
+  return L.geoJSON(
+    {
+      type: "FeatureCollection",
+      features: dataset.regionFeatures,
+    },
+    {
+      style: {
+        color: dataset.regionStyle?.color || "#9a6700",
+        weight: 1.1,
+        fillColor: dataset.regionStyle?.fillColor || "#fbbf24",
+        fillOpacity: 0.14,
+        dashArray: "6 4",
+      },
+    }
+  );
+}
+
+function buildUsGetsLeafletLayer(dataset) {
+  const layerGroup = L.layerGroup();
+  const bindGetsPopup = (feature, featureLayer) => {
+    bindHoverPersistentPopup(featureLayer, buildPopupHTML(feature));
+  };
+
+  if (dataset.lineFeatures?.length) {
+    layerGroup.addLayer(L.geoJSON(
+      { type: "FeatureCollection", features: dataset.lineFeatures },
+      {
+        style: { color: "#2563eb", weight: 3.2, opacity: 0.95, dashArray: "8 5" },
+        onEachFeature: bindGetsPopup,
+      }
+    ));
+  }
+
+  if (dataset.nodeFeatures?.length) {
+    layerGroup.addLayer(L.geoJSON(
+      { type: "FeatureCollection", features: dataset.nodeFeatures },
+      {
+        pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+          radius: 5,
+          color: "#1d4ed8",
+          weight: 1.5,
+          fillColor: "#60a5fa",
+          fillOpacity: 0.95,
+        }),
+        onEachFeature: bindGetsPopup,
+      }
+    ));
+  }
+
   return layerGroup;
 }
 
@@ -886,6 +956,71 @@ async function ensureUsReconductoringLayerPrepared(isoKey) {
   return layer;
 }
 
+async function syncUsRegionLayer(isoKey, shouldShow) {
+  const checkbox = usRegionCheckboxes.get(isoKey);
+  if (!shouldShow) {
+    const layer = usRegionLayers.get(isoKey);
+    if (layer && map.hasLayer(layer)) {
+      map.removeLayer(layer);
+    }
+    usRegionLayers.delete(isoKey);
+    return;
+  }
+
+  try {
+    if (checkbox) checkbox.disabled = true;
+    const dataset = await ensureUsReconductoringDataset(isoKey);
+    const layer = buildUsRegionLeafletLayer(dataset);
+    layer.addTo(map);
+    usRegionLayers.set(isoKey, layer);
+  } catch (error) {
+    if (checkbox) checkbox.checked = false;
+    console.warn(`${isoKey} region area unavailable`, error);
+  } finally {
+    if (checkbox && ISO_RECONDUCTORING_CONFIG.find((entry) => entry.key === isoKey)?.enabled) {
+      checkbox.disabled = false;
+    }
+  }
+}
+
+async function syncUsGetsLayer(isoKey, shouldShow) {
+  const checkbox = usGetsCheckboxes.get(isoKey);
+  if (!shouldShow) {
+    const layer = usGetsLayers.get(isoKey);
+    if (layer && map.hasLayer(layer)) {
+      map.removeLayer(layer);
+    }
+    usGetsLayers.delete(isoKey);
+    usActiveGetsIsos.delete(isoKey);
+    updateUsIsoProjectCount(isoKey, "gets", 0);
+    activateStatusTracking();
+    return;
+  }
+
+  try {
+    if (checkbox) checkbox.disabled = true;
+    const url = makeAbsoluteUrl(`./data/gets/${encodeURIComponent(isoKey)}.json`);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+    const dataset = await response.json();
+    const layer = buildUsGetsLeafletLayer(dataset);
+    layer.addTo(map);
+    usGetsLayers.set(isoKey, layer);
+    usActiveGetsIsos.add(isoKey);
+    updateUsIsoProjectCount(isoKey, "gets", dataset.summary?.projectCount);
+    activateStatusTracking();
+  } catch (error) {
+    if (checkbox) checkbox.checked = false;
+    usActiveGetsIsos.delete(isoKey);
+    updateUsIsoProjectCount(isoKey, "gets", 0);
+    setStatusById(`us-gets-${isoKey}`, "warn", `${isoKey.toUpperCase()} GETS unavailable: ${error?.message || "unknown error"}`);
+  } finally {
+    if (checkbox && ISO_RECONDUCTORING_CONFIG.find((entry) => entry.key === isoKey)?.enabled) {
+      checkbox.disabled = false;
+    }
+  }
+}
+
 async function syncUsReconductoringLayer(isoKey, shouldShow) {
   const statusId = `us-reconductoring-${isoKey}`;
   const checkbox = usReconductoringCheckboxes.get(isoKey);
@@ -898,6 +1033,7 @@ async function syncUsReconductoringLayer(isoKey, shouldShow) {
     usReconductoringLayers.delete(isoKey);
     usReconductoringSummaries.delete(isoKey);
     usActiveReconductoringIsos.delete(isoKey);
+    updateUsIsoProjectCount(isoKey, "reconductoring", 0);
     removeStatus(statusId);
     renderUsReconductoringSummary();
     activateStatusTracking();
@@ -924,8 +1060,11 @@ async function syncUsReconductoringLayer(isoKey, shouldShow) {
       ...dataset.summary,
       label: dataset.label,
     });
-    const labelElement = document.querySelector(`#section-us-reconductoring [data-iso-key="${isoKey}"] .reconductoring-label-count`);
-    setLegendCount(labelElement, dataset.summary.existingSegmentCount + dataset.summary.newSegmentCount);
+    updateUsIsoProjectCount(
+      isoKey,
+      "reconductoring",
+      dataset.summary.workbookProjectRowCount ?? dataset.summary.existingSegmentCount + dataset.summary.newSegmentCount
+    );
     setStatusById(statusId, "ok", buildReconductoringStatusText(dataset));
     renderUsReconductoringSummary(`
       <strong>${dataset.label}</strong><br />
@@ -941,6 +1080,7 @@ async function syncUsReconductoringLayer(isoKey, shouldShow) {
       checkbox.checked = false;
     }
     usActiveReconductoringIsos.delete(isoKey);
+    updateUsIsoProjectCount(isoKey, "reconductoring", 0);
     setStatusById(statusId, "warn", `${isoKey.toUpperCase()} reconductoring unavailable: ${error?.message || "unknown error"}`);
     renderUsReconductoringSummary(`
       <strong>${isoKey.toUpperCase()} reconductoring unavailable.</strong><br />
@@ -1297,12 +1437,7 @@ function enableCardDrag(card, handle = card) {
 }
 
 function enableSectionCardDrag(card) {
-  if (!card) {
-    return;
-  }
-
-  const header = card.querySelector(".section-card-header");
-  enableCardDrag(card, header || card);
+  void card;
 }
 
 function makeAbsoluteUrl(path) {
@@ -1451,6 +1586,16 @@ function buildPowerPlantPopupHTML(properties) {
     ["TYPE", properties.TYPE],
     ["STATUS", properties.STATUS],
     ["COUNTY", properties.COUNTY],
+    ["OPERATOR", properties.OPERATOR],
+    ["OPER_CAP", properties.OPER_CAP],
+    ["SUMMER_CAP", properties.SUMMER_CAP],
+    ["WINTER_CAP", properties.WINTER_CAP],
+    ["PRIM_FUEL", properties.PRIM_FUEL],
+    ["SEC_FUEL", properties.SEC_FUEL],
+    ["COAL_USED", properties.COAL_USED],
+    ["NGAS_USED", properties.NGAS_USED],
+    ["OIL_USED", properties.OIL_USED],
+    ["NET_GEN", properties.NET_GEN],
     ["CAP_FACTOR", properties.CAP_FACTOR],
     ["SUB_1", properties.SUB_1],
     ["SUB_2", properties.SUB_2],
@@ -2389,7 +2534,7 @@ function buildUsReconductoringControl() {
 
   const title = document.createElement("h2");
   title.className = "section-card-title";
-  title.textContent = "Reconductoring projects";
+  title.textContent = "Reconductoring & GETS projects";
   header.appendChild(title);
   card.appendChild(header);
 
@@ -2405,18 +2550,44 @@ function buildUsReconductoringControl() {
   const reconductoringSelectAll = document.createElement("input");
   reconductoringSelectAll.type = "checkbox";
 
+  const regionSelectAll = document.createElement("input");
+  regionSelectAll.type = "checkbox";
+  regionSelectAll.title = "Enable or disable all ISO region marker areas";
+
   const optionsTitleSpan = document.createElement("span");
   optionsTitleSpan.textContent = "ISO regions:";
 
-  optionsTitle.appendChild(reconductoringSelectAll);
+  optionsTitle.appendChild(regionSelectAll);
   optionsTitle.appendChild(optionsTitleSpan);
-  optionsWrap.appendChild(optionsTitle);
+  const optionsHeader = document.createElement("div");
+  optionsHeader.className = "reconductoring-grid reconductoring-grid-header";
+  optionsTitle.className = "reconductoring-grid-heading";
+  optionsHeader.appendChild(optionsTitle);
+  const reconductoringHeading = document.createElement("label");
+  reconductoringHeading.className = "reconductoring-grid-heading";
+  reconductoringHeading.appendChild(reconductoringSelectAll);
+  reconductoringHeading.appendChild(document.createTextNode("Reconduct."));
+  const getsHeading = document.createElement("label");
+  getsHeading.className = "reconductoring-grid-heading";
+  getsHeading.textContent = "GETS";
+  optionsHeader.appendChild(reconductoringHeading);
+  optionsHeader.appendChild(getsHeading);
+  optionsWrap.appendChild(optionsHeader);
 
   const enabledCheckboxes = [];
+  const regionCheckboxes = [];
+  const getsCheckboxes = [];
+  const getsSelectAll = document.createElement("input");
+  getsSelectAll.type = "checkbox";
+  getsSelectAll.title = "Enable or disable all GETS layers";
+  getsHeading.replaceChildren(getsSelectAll, document.createTextNode("GETS"));
 
   for (const iso of ISO_RECONDUCTORING_CONFIG) {
-    const row = document.createElement("label");
-    row.className = "voltage-filter-row";
+    const row = document.createElement("div");
+    row.className = "reconductoring-grid reconductoring-grid-row";
+
+    const regionCell = document.createElement("label");
+    regionCell.className = "reconductoring-region-cell";
 
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
@@ -2435,11 +2606,45 @@ function buildUsReconductoringControl() {
     labelCount.classList.add("reconductoring-label-count");
     row.dataset.isoKey = iso.key;
 
-    row.appendChild(checkbox);
-    row.appendChild(marker);
-    row.appendChild(text);
+    regionCell.appendChild(marker);
+    const regionCheckbox = document.createElement("input");
+    regionCheckbox.type = "checkbox";
+    regionCheckbox.checked = iso.enabled;
+    regionCheckbox.disabled = !iso.enabled;
+    regionCheckbox.title = `Show ${iso.label} marker area`;
+    regionCheckbox.addEventListener("change", () => {
+      syncUsRegionLayer(iso.key, regionCheckbox.checked);
+      updateRegionSelectAll();
+    });
+    regionCell.insertBefore(regionCheckbox, marker);
+    regionCell.appendChild(text);
+    row.appendChild(regionCell);
+
+    const reconductoringCell = document.createElement("label");
+    reconductoringCell.className = "reconductoring-check-cell";
+    reconductoringCell.appendChild(checkbox);
+    row.appendChild(reconductoringCell);
+
+    const getsCell = document.createElement("label");
+    getsCell.className = "reconductoring-check-cell";
+    const getsCheckbox = document.createElement("input");
+    getsCheckbox.type = "checkbox";
+    const getsAvailable = iso.key === "caiso" || iso.key === "miso" || iso.key === "spp";
+    getsCheckbox.checked = getsAvailable;
+    getsCheckbox.disabled = !getsAvailable;
+    getsCheckbox.title = getsAvailable ? "Show GETS projects" : `${iso.label} GETS is not available`;
+    getsCheckbox.addEventListener("change", () => {
+      syncUsGetsLayer(iso.key, getsCheckbox.checked);
+      updateGetsSelectAll();
+    });
+    getsCell.appendChild(getsCheckbox);
+    row.appendChild(getsCell);
+    getsCheckboxes.push(getsCheckbox);
     optionsWrap.appendChild(row);
     usReconductoringCheckboxes.set(iso.key, checkbox);
+    usRegionCheckboxes.set(iso.key, regionCheckbox);
+    usGetsCheckboxes.set(iso.key, getsCheckbox);
+    regionCheckboxes.push(regionCheckbox);
 
     if (iso.enabled) {
       checkbox.addEventListener("change", () => {
@@ -2458,6 +2663,18 @@ function buildUsReconductoringControl() {
     reconductoringSelectAll.indeterminate = checkedCount > 0 && checkedCount < enabledCheckboxes.length;
   };
 
+  const updateGetsSelectAll = () => {
+    const checkedCount = getsCheckboxes.filter((cb) => cb.checked).length;
+    getsSelectAll.checked = checkedCount > 0;
+    getsSelectAll.indeterminate = checkedCount > 0 && checkedCount < getsCheckboxes.length;
+  };
+
+  const updateRegionSelectAll = () => {
+    const checkedCount = regionCheckboxes.filter((cb) => cb.checked).length;
+    regionSelectAll.checked = checkedCount > 0;
+    regionSelectAll.indeterminate = checkedCount > 0 && checkedCount < regionCheckboxes.length;
+  };
+
   reconductoringSelectAll.addEventListener("change", () => {
     const nextChecked = reconductoringSelectAll.checked;
     for (const cb of enabledCheckboxes) {
@@ -2468,7 +2685,29 @@ function buildUsReconductoringControl() {
     }
   });
 
+  getsSelectAll.addEventListener("change", () => {
+    const nextChecked = getsSelectAll.checked;
+    for (const checkbox of getsCheckboxes) {
+      if (!checkbox.disabled && checkbox.checked !== nextChecked) {
+        checkbox.checked = nextChecked;
+        checkbox.dispatchEvent(new Event("change"));
+      }
+    }
+  });
+
+  regionSelectAll.addEventListener("change", () => {
+    const nextChecked = regionSelectAll.checked;
+    for (const checkbox of regionCheckboxes) {
+      if (!checkbox.disabled && checkbox.checked !== nextChecked) {
+        checkbox.checked = nextChecked;
+        checkbox.dispatchEvent(new Event("change"));
+      }
+    }
+  });
+
   updateReconductoringSelectAll();
+  updateGetsSelectAll();
+  updateRegionSelectAll();
 
   body.appendChild(optionsWrap);
 
@@ -2485,7 +2724,7 @@ function buildUsReconductoringControl() {
         const countEl = card.querySelector(
           `[data-iso-key="${iso.key}"] .reconductoring-label-count`
         );
-        setLegendCount(countEl, dataset.summary.existingSegmentCount + dataset.summary.newSegmentCount);
+        setLegendCount(countEl, 0);
       })
       .catch((error) => console.warn(`${iso.label} reconductoring count unavailable`, error));
   }
@@ -3180,7 +3419,7 @@ function buildUsPowerPlantControl() {
   body.appendChild(typeContainer);
 
   card.appendChild(body);
-  appendUsLegendCard(card);
+  mapUiLeftEl.appendChild(card);
   enableSectionCardDrag(card);
 
   usPowerPlantTypeContainer = typeContainer;
@@ -3417,6 +3656,12 @@ async function initializeUsMap() {
       ...ISO_RECONDUCTORING_CONFIG
         .filter((entry) => entry.enabled)
         .map((entry) => syncUsReconductoringLayer(entry.key, true)),
+      ...ISO_RECONDUCTORING_CONFIG
+        .filter((entry) => entry.key === "caiso" || entry.key === "miso" || entry.key === "spp")
+        .map((entry) => syncUsGetsLayer(entry.key, true)),
+      ...ISO_RECONDUCTORING_CONFIG
+        .filter((entry) => entry.enabled)
+        .map((entry) => syncUsRegionLayer(entry.key, true)),
     ]);
   } catch (error) {
     setStatus("us-map", "error", `US data load failed: ${error?.message || "unknown error"}`);

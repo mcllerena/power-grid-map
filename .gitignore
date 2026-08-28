@@ -9,6 +9,6 @@ node_modules
 utils/
 outputs/
 data/
-reference/
+# reference/
 .venv
 .DS_Store

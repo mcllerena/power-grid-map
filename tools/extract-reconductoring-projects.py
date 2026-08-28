@@ -62,8 +62,6 @@ def main() -> int:
             normalized = {str(col).strip(): normalize_cell(record[col]) for col in df.columns}
             sub_1 = normalize_cell(normalized.get("SUB_1", ""))
             sub_2 = normalize_cell(normalized.get("SUB_2", ""))
-            if not sub_1 or not sub_2:
-                continue
             rows.append(normalized)
 
         out[iso_key] = rows
