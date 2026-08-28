@@ -8,7 +8,7 @@ node_modules
 
 utils/
 outputs/
-data/
+# data/
 # reference/
 .venv
 .DS_Store
