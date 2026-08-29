@@ -1392,10 +1392,12 @@ body.us-map-page #map-ui-left.is-open {
 }
 
 .leaflet-popup-content {
-  font-size: 0.88rem;
-  max-height: 240px;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  max-height: 280px;
+  margin: 14px 16px;
   overflow: auto;
-  scrollbar-color: rgba(0, 0, 0, 0.7) rgba(0, 0, 0, 0.15);
+  scrollbar-color: rgba(103, 232, 249, 0.7) rgba(255, 255, 255, 0.08);
   scrollbar-width: thin;
 }
 
@@ -1404,19 +1406,29 @@ body.us-map-page #map-ui-left.is-open {
 }
 
 .leaflet-popup-content::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .leaflet-popup-content::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(103, 232, 249, 0.7);
   border-radius: 10px;
-  border: 2px solid rgba(0, 0, 0, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.08);
 }
 
 .leaflet-popup-content-wrapper,
 .leaflet-popup-tip {
-  background: rgba(0, 0, 0, 0.74);
+  background: rgba(10, 25, 36, 0.94);
+  border: 1px solid rgba(103, 232, 249, 0.42);
   color: #ffffff;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  box-shadow: 0 14px 34px rgba(2, 12, 20, 0.38), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+}
+
+.leaflet-popup-tip {
+  box-shadow: 3px 3px 8px rgba(2, 12, 20, 0.18);
 }
 
 .leaflet-popup-content-wrapper table,
@@ -1424,6 +1436,49 @@ body.us-map-page #map-ui-left.is-open {
 .leaflet-popup-content-wrapper td,
 .leaflet-popup-content-wrapper a {
   color: #ffffff;
+}
+
+.leaflet-popup-content-wrapper table {
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 260px;
+}
+
+.leaflet-popup-content-wrapper tr:first-child th,
+.leaflet-popup-content-wrapper tr:first-child td {
+  border-top: 0;
+}
+
+.leaflet-popup-content-wrapper th,
+.leaflet-popup-content-wrapper td {
+  border-top: 1px solid rgba(186, 230, 253, 0.14);
+  padding: 7px 9px;
+  vertical-align: top;
+}
+
+.leaflet-popup-content-wrapper th {
+  color: #a5f3fc;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.leaflet-popup-content-wrapper td {
+  color: #f0fdfa;
+  font-weight: 500;
+  max-width: 320px;
+}
+
+.leaflet-popup-content-wrapper tr:nth-child(even) {
+  background: rgba(125, 211, 252, 0.055);
+}
+
+.leaflet-popup-content-wrapper tr:first-child th {
+  color: #67e8f9;
 }
 
 .leaflet-control-attribution {

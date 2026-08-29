@@ -278,8 +278,8 @@ const ISO_RECONDUCTORING_CONFIG = [
     states: [],
     enabled: true,
     regionStyle: {
-      color: "#0f766e",
-      fillColor: "#34d399",
+      color: "#0e7490",
+      fillColor: "#a5f3fc",
     },
     substationPairs: [],
   },
@@ -1060,10 +1060,9 @@ function buildPopupProperties(feature) {
   const projectSub2 = String(primaryProject?.SUB_2 || "").trim();
   const displaySub1 = projectSub1 || props.SUB_1 || "-";
   const displaySub2 = projectSub2 || props.SUB_2 || "-";
-  const displayPair = projectSub1 && projectSub2 ? `${projectSub1} -> ${projectSub2}` : props.substation_pair || "-";
+  const displayPair = projectSub1 && projectSub2 ? `${projectSub1} → ${projectSub2}` : props.substation_pair || "-";
   const rows = [
     ["Region", props.iso_region || "-"],
-    ["Project", props.project_type === "new-reconductoring" ? "New reconductoring" : "Line Reconductoring"],
     ["Substation pair", displayPair],
     ["SUB_1", displaySub1],
     ["SUB_2", displaySub2],
@@ -1082,7 +1081,6 @@ function buildPopupProperties(feature) {
 
   if (primaryProject) {
     rows.push(["Utility", primaryProject.Utility || "-"]);
-    rows.push(["Project type", primaryProject["Project Type"] || "-"]);
     rows.push(["Conductor", primaryProject["Conductor Type"] || primaryProject.Conductor || "-"]);
     rows.push(["Distance (mi)", primaryProject["Distance (mi)"] || "-"]);
     rows.push(["Rating", primaryProject.Rating || "-"]);

@@ -270,6 +270,21 @@ function buildRegionIndex(regionFeatures) {
   return { bounds, geometries };
 }
 
+function findRegionAnchor(regionIndex) {
+  const { minX, minY, maxX, maxY } = regionIndex.bounds || {};
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+  for (let row = 0; row <= 20; row += 1) {
+    for (let column = 0; column <= 20; column += 1) {
+      const point = [
+        minX + ((maxX - minX) * column) / 20,
+        minY + ((maxY - minY) * row) / 20,
+      ];
+      if (pointInsideRegion(point, regionIndex)) return point;
+    }
+  }
+  return null;
+}
+
 function getLineEndpoints(geometry) {
   const lineStrings = getLineStrings(geometry);
   if (!lineStrings.length) {
@@ -282,6 +297,32 @@ function getLineEndpoints(geometry) {
 
 function normalizeName(value) {
   return String(value || "").trim().toUpperCase();
+}
+
+function resolveTerminalName(value, availableNames) {
+  const original = String(value || "").trim();
+  if (/^(?:THE\s+)?(?:[A-Z]{2}\s*\/\s*)?[A-Z]{2}\s+BORDER$/i.test(original)) return "BORDER";
+  const normalized = normalizeName(original);
+  if (!normalized || !availableNames?.length) return original;
+  if (normalized.replace(/[^A-Z0-9]/g, "") === "SCOVILLROCK") return "SCOVILL ROCKS";
+  const exact = availableNames.find((name) => normalizeName(name) === normalized);
+  if (exact) return exact.toUpperCase();
+  const compact = normalized.replace(/[^A-Z0-9]/g, "");
+  const contained = availableNames
+    .filter((name) => {
+      const candidate = normalizeName(name).replace(/[^A-Z0-9]/g, "");
+      return candidate.length >= 5 && compact.includes(candidate);
+    })
+    .sort((a, b) => normalizeName(b).length - normalizeName(a).length);
+  return contained[0]?.toUpperCase() || original.toUpperCase();
+}
+
+function cleanWorkbookTerminalRows(rows, availableNames) {
+  return (rows || []).map((row) => ({
+    ...row,
+    SUB_1: resolveTerminalName(row?.SUB_1, availableNames),
+    SUB_2: resolveTerminalName(row?.SUB_2, availableNames),
+  }));
 }
 
 function parseCoordinateOverride(value) {
@@ -829,11 +870,10 @@ async function loadSubstationCoordinates() {
   const candidates = new Map();
   for (const row of parseCsvText(csvText)) {
     const name = normalizeName(row.NAME);
-    const state = String(row.STATE || "").trim().toUpperCase();
     const latitude = Number(row.LATITUDE);
     const longitude = Number(row.LONGITUDE);
     const voltage = Number(row.MAX_VOLT);
-    if (!name || state !== "CA" || !Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+    if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
     if (!candidates.has(name)) candidates.set(name, []);
     candidates.get(name).push({ coordinate: [longitude, latitude], voltage });
   }
@@ -903,7 +943,10 @@ async function generate() {
     const regionalFeatures = transmissionIndex.features.filter((feature) => featureIntersectsAnyRegion(feature, regionIndex));
     const regionalIndex = buildTransmissionIndex(regionalFeatures.map((feature) => cloneFeature(feature)));
     const derivedPairs = deriveSubstationPairsFromMatchers(regionalIndex.features, isoConfig.directMatchers);
-    const workbookRows = workbookProjectsByIso[isoConfig.key] || [];
+    const workbookRows = cleanWorkbookTerminalRows(
+      workbookProjectsByIso[isoConfig.key] || [],
+      [...regionalIndex.adjacency.keys(), ...regionalIndex.substationCoordinates.keys()]
+    );
     const workbookPairs = getPairsFromWorkbookRows(workbookRows);
     const basePairs = workbookPairs.length ? workbookPairs : (isoConfig.substationPairs || []);
     const targetPairs = dedupeSubstationPairs([...basePairs, ...derivedPairs]);
@@ -917,6 +960,7 @@ async function generate() {
     const pathMatchedPairKeys = new Set();
     const fallbackPairKeys = new Set();
     const unmatchedPairKeys = new Set();
+    const mappedPairKeys = new Set();
     for (const [sub1, sub2] of targetPairs) {
       const pairKey = buildCanonicalPairLabel(sub1, sub2);
       const projectRows = projectsByPair.get(pairKey) || [];
@@ -924,6 +968,7 @@ async function generate() {
         pairRowsMatchCount.add(pairKey);
       }
       const beforeNewLineCount = newLineFeatures.length;
+      const beforeNewPointCount = newPointFeatures.length;
       // Resolve workbook pairs through the transmission graph first. This
       // follows the full shortest path, including intermediary substations,
       // instead of treating SUB_1/SUB_2 as a required direct line match.
@@ -955,10 +1000,15 @@ async function generate() {
       );
       if (ids.size) {
         pathMatchedPairKeys.add(pairKey);
+        mappedPairKeys.add(pairKey);
       } else if (newLineFeatures.length > beforeNewLineCount) {
         fallbackPairKeys.add(pairKey);
+        mappedPairKeys.add(pairKey);
       } else {
         unmatchedPairKeys.add(pairKey);
+        if (newPointFeatures.length > beforeNewPointCount) {
+          mappedPairKeys.add(pairKey);
+        }
       }
       for (const id of ids) {
         existingLineIds.add(id);
@@ -981,6 +1031,29 @@ async function generate() {
           if (feature.properties.substation_pair === `${sub1} -> ${sub2}` && !feature.properties.project_records) {
             feature.properties = applyWorkbookProjectMetadata(feature.properties, projectRows);
           }
+        }
+      }
+    }
+    if (isoConfig.key === "sertp" || isoConfig.key === "iso-ne") {
+      const regionAnchor = findRegionAnchor(regionIndex);
+      if (regionAnchor) {
+        for (const row of workbookRows) {
+          const pairKey = buildCanonicalPairLabel(row?.SUB_1, row?.SUB_2);
+          if (mappedPairKeys.has(pairKey)) continue;
+          const fallbackFeature = {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: regionAnchor },
+            properties: {
+              project_type: "new-reconductoring",
+              iso_region: isoConfig.label,
+              substation_pair: `${row?.SUB_1 || "-"} -> ${row?.SUB_2 || "-"}`,
+              endpoint_name: `${isoConfig.label} regional project location`,
+              endpoint_match_message: `Project endpoints were not found in the transmission database; shown at an in-region ${isoConfig.label} location.`,
+            },
+          };
+          fallbackFeature.properties = applyWorkbookProjectMetadata(fallbackFeature.properties, [row]);
+          newPointFeatures.push(fallbackFeature);
+          mappedPairKeys.add(pairKey);
         }
       }
     }
@@ -1016,6 +1089,40 @@ async function generate() {
         return clone;
       });
     existingFeatures = dedupeWorkbookBackedPairFeatures(existingFeatures, projectsByPair);
+    if (isoConfig.key === "iso-ne") {
+      const representedSourceIds = new Set();
+      for (const feature of [...existingFeatures, ...newLineFeatures, ...newPointFeatures]) {
+        for (const record of feature.properties?.project_records || []) {
+          const sourceId = String(record?.["ISONE Source ID"] || "").trim();
+          if (sourceId) {
+            representedSourceIds.add(sourceId);
+          }
+        }
+      }
+      const regionAnchor = findRegionAnchor(regionIndex);
+      if (regionAnchor) {
+        for (const row of workbookRows) {
+          const sourceId = String(row?.["ISONE Source ID"] || "").trim();
+          if (!sourceId || representedSourceIds.has(sourceId)) {
+            continue;
+          }
+          const fallbackFeature = {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: regionAnchor },
+            properties: {
+              project_type: "new-reconductoring",
+              iso_region: isoConfig.label,
+              substation_pair: `${row?.SUB_1 || "-"} -> ${row?.SUB_2 || "-"}`,
+              endpoint_name: "ISO-NE regional project location",
+              endpoint_match_message: "Project endpoints were not found in the transmission database; shown at an in-region ISO-NE location.",
+            },
+          };
+          fallbackFeature.properties = applyWorkbookProjectMetadata(fallbackFeature.properties, [row]);
+          newPointFeatures.push(fallbackFeature);
+          representedSourceIds.add(sourceId);
+        }
+      }
+    }
     const projectsUnmatchedToPairs = (workbookRows || []).filter((row) => {
       const key = buildCanonicalPairLabel(row?.SUB_1, row?.SUB_2);
       return !pairRowsMatchCount.has(key);
